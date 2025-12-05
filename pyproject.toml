@@ -1,0 +1,9 @@
+[project]
+name = "speedhive-tools"
+version = "0.1.0"
+description = "Tools for MYLAPS Speedhive Event Results API"
+readme = "README.md"
+requires-python = ">=3.8"
+
+[project.urls]
+Repository = "https://github.com/YOUR_GITHUB_USERNAME/speedhive-tools"
