@@ -2,7 +2,7 @@
 
 ## Overview
 `speedhive-tools` is a Python-based toolkit designed to interact with the MYLAPS Speedhive Event Results API.  
-Its primary intent is to **automate the extraction and formatting of track record announcements** (e.g., "New Track Record") for racing organizations.  
+The primary purpose of this project is to provide a standardized, reusable, and fully extendable architecture for racing organizations, developers, and data analysts to easily extract, process, and format race data from the Speedhive platform.
 
 While the initial implementation focuses on generating a clean JSON file of track records, the architecture is **fully extendable**. You can easily add methods to:
 - Pull classifications, lap charts, or timing data
