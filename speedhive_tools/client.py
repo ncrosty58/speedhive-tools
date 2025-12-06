@@ -5,7 +5,7 @@ import time
 import re
 import csv
 import json
-from typing import Dict, List, Optional, Any, Iterable, Union, Iterator
+from typing import Dict, List, Optional, Any, Iterable, Union, Iterator, Tuple
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 from datetime import datetime
@@ -408,6 +408,15 @@ class SpeedHiveClient:
                 w.writerow(self._record_to_dict(r))
         return len(records)
 
+    def export_records_to_json_camel(self, org_or_records: Union[int, Iterable[TrackRecord]], out_path: str | Path) -> int:
+        if isinstance(org_or_records, int):
+            records = self.get_track_records_by_org(org_or_records)
+        else:
+            records = list(org_or_records)
+        payload = {"records": [self._record_to_camel_dict(r) for r in records]}
+        Path(out_path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return len(records)
+
     # ---------------------- Announcements (sequential) ----------------------
 
     def get_sessions_for_event(self, event_id: int) -> List[Dict]:
@@ -486,7 +495,7 @@ class SpeedHiveClient:
         re.compile(r"(?i)\bnot\s+recognized\b"),
     ]
     _TIME_MMSS = r"\b\d{1,2}:\d{2}\.\d{3}\b"
-    # Allow letters AND digits in the first segment (fixes T4, SM2, GT1, etc.)
+    # ✅ Allow letters AND digits in the first segment (fixes T2, T4, SM2, GT1, etc.)
     _CLASS_ABBR = r"\b[A-Z0-9]{1,4}(?:-[A-Z0-9]{1,3})?\b"
     _PAREN_CONTENT = r"\(([^)]+)\)"
     _SEPS = r"[\-\u2013\u2014\u2022]"
@@ -575,8 +584,10 @@ class SpeedHiveClient:
         m = self.RE_FOR_BY_IN.search(raw)
         if m:
             lap_time, class_abbr, driver_raw, marque = m.groups()
+            # Strip grid positions like "[2]" from driver names
+            driver_clean = re.sub(r"\[\s*\d+\s*\]\s*", "", driver_raw).strip()
             return TrackRecord(
-                driver_name=driver_raw.strip(),
+                driver_name=driver_clean,
                 lap_time=lap_time.strip(),
                 track_name=row.get("trackName"),
                 date=row.get("eventDate"),
@@ -589,8 +600,9 @@ class SpeedHiveClient:
         m = self.RE_FOR_BY.search(raw)
         if m:
             lap_time, class_abbr, driver_raw = m.groups()
+            driver_clean = re.sub(r"\[\s*\d+\s*\]\s*", "", driver_raw).strip()
             return TrackRecord(
-                driver_name=driver_raw.strip(),
+                driver_name=driver_clean,
                 lap_time=lap_time.strip(),
                 track_name=row.get("trackName"),
                 date=row.get("eventDate"),
@@ -603,8 +615,9 @@ class SpeedHiveClient:
         m = self.RE_FOR_BY_NOPAREN.search(raw)
         if m:
             lap_time, class_abbr, driver_raw = m.groups()
+            driver_clean = re.sub(r"\[\s*\d+\s*\]\s*", "", driver_raw).strip()
             return TrackRecord(
-                driver_name=driver_raw.strip(),
+                driver_name=driver_clean,
                 lap_time=lap_time.strip(),
                 track_name=row.get("trackName"),
                 date=row.get("eventDate"),
@@ -625,8 +638,9 @@ class SpeedHiveClient:
                         break
                     except ValueError:
                         pass
+            driver_clean = re.sub(r"\[\s*\d+\s*\]\s*", "", driver_raw).strip()
             return TrackRecord(
-                driver_name=driver_raw.strip(),
+                driver_name=driver_clean,
                 lap_time=lap_time.strip(),
                 track_name=row.get("trackName"),
                 date=final_date,
@@ -647,8 +661,9 @@ class SpeedHiveClient:
                         break
                     except ValueError:
                         pass
+            driver_clean = re.sub(r"\[\s*\d+\s*\]\s*", "", driver_raw).strip()
             return TrackRecord(
-                driver_name=driver_raw.strip(),
+                driver_name=driver_clean,
                 lap_time=lap_time.strip(),
                 track_name=row.get("trackName"),
                 date=final_date,
@@ -720,6 +735,35 @@ class SpeedHiveClient:
                 )
 
         return None
+
+    # ---------------------- Validation ----------------------
+
+    def is_record_valid(self, tr: TrackRecord | None) -> Tuple[bool, str | None]:
+        """
+        Minimal structural validation for a parsed TrackRecord.
+        Returns (ok, reason). Reasons are short, stable strings used by callers.
+        """
+        if tr is None:
+            return False, "No record parsed"
+
+        # lapTime must be present and match mm:ss.mmm (e.g., 1:12.806)
+        if not tr.lap_time or not re.fullmatch(r"\d{1,2}:\d{2}\.\d{3}", str(tr.lap_time)):
+            return False, "Invalid lapTime"
+
+        # driverName required
+        if not isinstance(tr.driver_name, str) or not tr.driver_name.strip():
+            return False, "Missing driverName"
+
+        # trackName required
+        if not isinstance(tr.track_name, str) or not tr.track_name.strip():
+            return False, "Missing trackName"
+
+        # classAbbreviation required (caller may choose to accept blank downstream)
+        if not isinstance(tr.class_name, str) or not tr.class_name.strip():
+            return False, "Missing classAbbreviation"
+
+        # date is helpful but may be inferred elsewhere; don’t hard‑fail if absent.
+        return True, None
 
     # ---------------------- Helpers used above ----------------------
 
@@ -819,15 +863,6 @@ class SpeedHiveClient:
             "trackName": r.track_name,
             "sessionId": sess_id,
         }
-
-    def export_records_to_json_camel(self, org_or_records: Union[int, Iterable[TrackRecord]], out_path: str | Path) -> int:
-        if isinstance(org_or_records, int):
-            records = self.get_track_records_by_org(org_or_records)
-        else:
-            records = list(org_or_records)
-        payload = {"records": [self._record_to_camel_dict(r) for r in records]}
-        Path(out_path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        return len(records)
 
 
 __all__ = ["SpeedHiveClient", "SpeedHiveAPIError"]
