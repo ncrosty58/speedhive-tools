@@ -1,4 +1,3 @@
-
 # speedhive_tools/client.py
 from __future__ import annotations
 import time
@@ -64,7 +63,7 @@ class SpeedHiveClient:
         if host == "api.speedhive.com":
             self._path_family = "orgs"
         else:
-            # eventresults-api.speedhive.com and anything else → organizations
+            # eventresults-api.speedhive.com and anything else  organizations
             self._path_family = "organizations"
 
         # Pooled session with centralized headers.
@@ -139,7 +138,7 @@ class SpeedHiveClient:
                 url=url,
             )
 
-        # 204 No Content → return empty dict
+        # 204 No Content  return empty dict
         if resp.status_code == 204:
             return {}
 
@@ -319,7 +318,7 @@ class SpeedHiveClient:
     def get_events_for_org(self, org_id: int, count: int = 200, offset: int = 0) -> List[Dict]:
         """Convenience list (raw dicts), adhering to the active path family."""
         if self._path_family == "orgs":
-            # Page/per_page → single page only if caller requests it explicitly.
+            # Page/per_page  single page only if caller requests it explicitly.
             data = self._get(
                 f"/{self._orgs_prefix()}/{org_id}/events",
                 params={"per_page": count, "page": 1},
@@ -497,7 +496,7 @@ class SpeedHiveClient:
     _TIME_MMSS = r"\b\d{1,2}:\d{2}\.\d{3}\b"
     # ✅ Allow letters AND digits in the first segment (fixes T2, T4, SM2, GT1, etc.)
     _CLASS_ABBR = r"\b[A-Z0-9]{1,4}(?:-[A-Z0-9]{1,3})?\b"
-    _PAREN_CONTENT = r"\(\([^)]+\)\)"
+    _PAREN_CONTENT = r"\(\([^)]*\)\)"
     _SEPS = r"[\-\u2013\u2014\u2022]"
     _PREFIX = re.compile(r"(?i)New\s+(?:Track|Class)\s+Record")
     RE_FOR_BY_IN = re.compile(
@@ -620,7 +619,7 @@ class SpeedHiveClient:
                 extra={**row, "announcementText": raw},
             )
 
-        # Separator-based primary (CLASS – TIME – DRIVER – (MARQUE) – DATE)
+        # Separator-based primary (CLASS  TIME  DRIVER  (MARQUE)  DATE)
         m = self.PRIMARY.search(raw)
         if m:
             class_abbr, lap_time, driver_raw, maybe_marque, maybe_date = (list(m.groups()) + ["", ""])[:5]
@@ -643,7 +642,7 @@ class SpeedHiveClient:
                 extra={**row, "announcementText": raw},
             )
 
-        # Alternate separator (DRIVER – TIME – CLASS – (DATE))
+        # Alternate separator (DRIVER  TIME  CLASS  (DATE))
         m = self.ALTERNATE.search(raw)
         if m:
             driver_raw, maybe_marque, lap_time, class_abbr, maybe_date = (list(m.groups()) + [""])[0:5]
@@ -749,7 +748,7 @@ class SpeedHiveClient:
         # classAbbreviation required (caller may choose to accept blank downstream)
         if not isinstance(tr.class_name, str) or not tr.class_name.strip():
             return False, "Missing classAbbreviation"
-        # date is helpful but may be inferred elsewhere; don’t hard‑fail if absent.
+        # date is helpful but may be inferred elsewhere; dont hardfail if absent.
         return True, None
 
     # ------------------------ Helpers used above ------------------------
@@ -820,7 +819,7 @@ class SpeedHiveClient:
 
     @staticmethod
     def _record_to_dict(r: TrackRecord) -> Dict[str, Any]:
-        # Leave lap_time ‘as‑is’ for non‑camel JSON/CSV to avoid changing existing behavior.
+        # Leave lap_time asis for noncamel JSON/CSV to avoid changing existing behavior.
         return {
             "driver_name": r.driver_name,
             "lap_time": r.lap_time,
@@ -834,7 +833,7 @@ class SpeedHiveClient:
     def _normalize_lap_time_str(value: Any) -> str:
         """
         Ensure lap time is in 'M:SS.mmm' format for camelCase export.
-        - If it already matches that pattern, return as‑is.
+        - If it already matches that pattern, return asis.
         - Else, try to parse as seconds (float) and format.
         - If parsing fails, return the original string.
         """
@@ -880,7 +879,7 @@ class SpeedHiveClient:
     ) -> Iterator[Dict]:
         """
         Yield raw event rows from the global /events feed with filters applied.
-        Low‑RAM streaming: an iterator over dicts.
+        Low8RAM streaming: an iterator over dicts.
         """
         params: Dict[str, Any] = {"sport": sport, "sportCategory": sport_category}
         if extra_params:
@@ -950,6 +949,51 @@ class SpeedHiveClient:
             params=None,
             max_items=None,
         )
+
+    # ------------------------ NEW: Lap data helpers ------------------------
+
+    def get_session_lap_data(self, session_id: int, position: int = 1) -> List[Dict]:
+        """
+        Fetch lap rows for a given session and finishing position.
+
+        Example endpoint:
+          GET /sessions/{session_id}/lapdata/{position}/laps
+
+        Returns a list of lap dicts (empty list if none or unexpected payload).
+        """
+        path = f"/sessions/{session_id}/lapdata/{position}/laps"
+        data = self._get(path)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            # many endpoints wrap in 'laps', 'items', or 'rows'
+            return data.get("laps") or data.get("items") or data.get("rows") or []
+        return []
+
+    def iter_session_lap_data(self, session_id: int, position: int = 1) -> Iterator[Dict]:
+        """
+        Streaming iterator for lap rows for a session/position.
+        (The endpoint typically returns a single list — this yields those items.)
+        """
+        rows = self.get_session_lap_data(session_id, position)
+        for r in rows:
+            yield r
+
+    def export_session_lapdata_to_ndjson(self, session_id: int, position: int, out_path: str | Path) -> int:
+        """
+        Fetch lap rows and write them as NDJSON to out_path.
+        Returns number of rows written.
+        """
+        rows = self.get_session_lap_data(session_id, position)
+        p = Path(out_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        written = 0
+        with p.open("w", encoding="utf-8") as fh:
+            for r in rows:
+                fh.write(json.dumps(r, ensure_ascii=False))
+                fh.write("\n")
+                written += 1
+        return written
 
 
 __all__ = ["SpeedHiveClient", "SpeedHiveAPIError"]
