@@ -5,13 +5,12 @@ api_usage_demo.py
 Demonstrates how to use SpeedhiveClient with typed models for real API calls.
 """
 
-# --- path bootstrap: make the repo root importable when running from examples/
+
 import sys
 from pathlib import Path
-repo_root = Path(__file__).resolve().parents[1]
-if str(repo_root) not in sys.path:
-    sys.path.insert(0, str(repo_root))
-# --- end bootstrap
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+
 
 from speedhive_tools.client import SpeedHiveClient
 from speedhive_tools.models import EventsPage, Event, AnnouncementsPage, Announcement
@@ -33,8 +32,6 @@ def main():
     org_page = EventsPage.model_validate(data)
     org_events = org_page.items
     print(f"Organization {org_id} has {len(org_events)} events")
-    if org_events:
-        print(f"  Example: {org_events[0].display_name}")
 
     # 3) Event with sessions
     if org_events:
@@ -52,7 +49,7 @@ def main():
             announcements: list[Announcement] = ann_page.items
             print(f"Session {session_id} has {len(announcements)} announcements")
             for a in announcements[:3]:
-                print(f"  - {a.driver_name} | {a.class_abbreviation} | {a.lap_time_seconds}s")
+                print(f"  - {a.driver_name} | {a.lap_time_seconds}s | {a.class_abbreviation}")
 
 if __name__ == "__main__":
     main()

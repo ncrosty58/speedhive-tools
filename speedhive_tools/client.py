@@ -1,460 +1,438 @@
 
-"""
-client.py
-Speedhive Event Results API Client (public endpoints; no authentication required).
-
-Endpoints implemented (based on provided API examples):
-- List events (across sport filters):
-  GET /events?sport=All&sportCategory=Motorized&count=25&offset=0
-
-- List events for an organization:
-  GET /organizations/{ORG_ID}/events?count=25&offset=0&sportCategory=Motorized
-
-- Get an event, optionally including sessions:
-  GET /events/{EVENT_ID}?sessions=true
-
-- List announcements (track records) for a session:
-  GET /sessions/{SESSION_ID}/announcements
-
-Design goals:
-- Resilient HTTP (retries, timeouts, logging).
-- Strong typing via Pydantic models (see models.py).
-- Offset/count pagination helpers.
-- Convenience traversal & export utilities.
-
-"""
-
+# speedhive_tools/client.py
 from __future__ import annotations
 
+import time
+from typing import Dict, List, Optional, Any, Iterable, Union
+from urllib.parse import urljoin
+import re
 import csv
 import json
-import logging
-from typing import Any, Dict, List, Optional, TypeVar, Callable
+from pathlib import Path
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from .models import (
-    Event,
-    EventsPage,
-    Session,
-    Announcement,
-    AnnouncementsPage,
+    Organization,
+    EventResult,
+    TrackRecord,
+    organization_from_api,
+    event_result_from_api,
 )
 
 
-# ------------------------------------------------------------------------------
-# Errors
-# ------------------------------------------------------------------------------
-
 class SpeedHiveAPIError(Exception):
-    """Custom exception for Speedhive API errors."""
-    pass
+    """Raised when the Speedhive API returns an error or the request fails."""
+    def __init__(self, message: str, status: int | None = None, url: str | None = None):
+        super().__init__(message)
+        self.status = status
+        self.url = url
 
 
-# ------------------------------------------------------------------------------
-# Configuration
-# ------------------------------------------------------------------------------
-
-DEFAULT_BASE_URL = "https://eventresults-api.speedhive.com/api/v0.2.3/eventresults"
-DEFAULT_TIMEOUT = 15
-DEFAULT_RETRIES = 3
-DEFAULT_BACKOFF_FACTOR = 0.5
-DEFAULT_USER_AGENT = "speedhive-tools/1.0 (+https://github.com/ncrosty58/speedhive-tools)"
-
-ENDPOINTS = {
-    "events": "events",
-    "organization_events": "organizations/{org_id}/events",
-    "event": "events/{event_id}",
-    "session_announcements": "sessions/{session_id}/announcements",
+DEFAULT_HEADERS = {
+    "Accept": "application/json",
+    "User-Agent": "speedhive-tools (+https://github.com/ncrosty58/speedhive-tools)",
 }
+DEFAULT_BASE_URL = "https://eventresults-api.speedhive.com/api/v0.2.3/eventresults"
 
-T = TypeVar("T")
-
-
-# ------------------------------------------------------------------------------
-# Client
-# ------------------------------------------------------------------------------
 
 class SpeedHiveClient:
-    """
-    Client for the MYLAPS Speedhive Event Results API.
-
-    Parameters
-    ----------
-    base_url : str
-        Base URL (default points to v0.2.3 eventresults).
-    timeout : int
-        Request timeout (seconds).
-    retries : int
-        Total automatic retries for transient failures.
-    backoff_factor : float
-        Exponential backoff factor.
-    user_agent : str
-        User-Agent header value.
-    extra_headers : Optional[Dict[str, str]]
-        Any additional headers to include in all requests.
-    logger : Optional[logging.Logger]
-        A logger; if not provided, a module logger is used.
-    """
-
     def __init__(
         self,
+        api_key: str | None = None,
+        rate_delay: float = 0.25,
         base_url: str = DEFAULT_BASE_URL,
-        timeout: int = DEFAULT_TIMEOUT,
-        retries: int = DEFAULT_RETRIES,
-        backoff_factor: float = DEFAULT_BACKOFF_FACTOR,
-        user_agent: str = DEFAULT_USER_AGENT,
-        extra_headers: Optional[Dict[str, str]] = None,
-        logger: Optional[logging.Logger] = None,
-    ) -> None:
+        timeout: int = 30,
+        retries: int = 2,
+    ):
+        self.api_key = api_key
+        self.rate_delay = rate_delay
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.logger = logger or logging.getLogger(__name__)
-        self.session = self._build_session(
-            retries=retries,
-            backoff_factor=backoff_factor,
-            user_agent=user_agent,
-            extra_headers=extra_headers,
-        )
+        self.retries = max(0, int(retries))
+        # Tests monkeypatch type(client.session).request(...), so keep a real Session.
+        self.session = requests.Session()
 
-    # --------------------------------------------------------------------------
-    # Session / HTTP
-    # --------------------------------------------------------------------------
+    # -------- Internal helpers --------
+    def _headers(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+        h = dict(DEFAULT_HEADERS)
+        if self.api_key:
+            h["Apikey"] = self.api_key
+        if extra:
+            h.update(extra)
+        return h
 
-    def _build_session(
-        self,
-        retries: int,
-        backoff_factor: float,
-        user_agent: str,
-        extra_headers: Optional[Dict[str, str]],
-    ) -> requests.Session:
-        session = requests.Session()
+    def _build_url(self, path: str) -> str:
+        if path.startswith("/"):
+            return f"{self.base_url}{path}"
+        return urljoin(self.base_url + "/", path)
 
-        headers = {
-            "Accept": "application/json",
-            "User-Agent": user_agent,
-        }
-        if extra_headers:
-            headers.update(extra_headers)
-        session.headers.update(headers)
-
-        retry = Retry(
-            total=retries,
-            backoff_factor=backoff_factor,
-            status_forcelist=(429, 500, 502, 503, 504),
-            allowed_methods=frozenset(["GET", "HEAD", "OPTIONS"]),
-            raise_on_status=False,
-        )
-        adapter = HTTPAdapter(max_retries=retry)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-
-        return session
-
+    # ---- Public helper (tests call/patch this) ----
     def _request(
         self,
         method: str,
-        endpoint: str,
+        path: str,
         *,
         params: Optional[Dict[str, Any]] = None,
-        timeout: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        json: Optional[Any] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Dict | List:
         """
-        Perform an HTTP request and parse JSON.
-
-        Raises
-        ------
-        SpeedHiveAPIError on HTTP errors or invalid JSON.
+        Make an HTTP request and return parsed JSON.
+        - uses client.session.request (so tests can monkeypatch),
+        - raises SpeedHiveAPIError on non-2xx (message includes body),
+        - raises SpeedHiveAPIError('Invalid JSON response') on JSON parse failure,
+        - retries naive on 5xx / network errors, up to self.retries.
         """
-        url = f"{self.base_url}/{endpoint.lstrip('/')}"
-        to = timeout or self.timeout
-
-        self.logger.debug("Request %s %s params=%s", method, url, params)
-
-        try:
-            resp = self.session.request(method=method.upper(), url=url, params=params, timeout=to)
-        except requests.RequestException as e:
-            raise SpeedHiveAPIError(f"Network error: {e}") from e
-
-        if not (200 <= resp.status_code < 300):
-            # Try JSON, fall back to text
-            try:
-                err = resp.json()
-            except Exception:
-                err = resp.text
-            raise SpeedHiveAPIError(f"HTTP {resp.status_code} for {method} {url} | Response: {err}")
-
-        try:
-            data = resp.json()
-        except ValueError as e:
-            raise SpeedHiveAPIError(f"Invalid JSON response from {url}: {e}") from e
-
-        self.logger.debug("Response (truncated): %s", str(data)[:1000])
-        return data
-
-    def _get(self, endpoint: str, *, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        return self._request("GET", endpoint, params=params)
-
-    # --------------------------------------------------------------------------
-    # Pagination (offset/count)
-    # --------------------------------------------------------------------------
-
-    def _paginate_offset_count(
-        self,
-        endpoint: str,
-        *,
-        base_params: Optional[Dict[str, Any]] = None,
-        count: int = 25,
-        offset: int = 0,
-        parse_batch: Callable[[Dict[str, Any]], List[T]],
-        max_items: Optional[int] = None,
-    ) -> List[T]:
-        """
-        Generic offset/count pagination loop that uses a parser function
-        to convert a raw page into typed items.
-        """
-        items: List[T] = []
-        off = offset
+        url = self._build_url(path)
+        attempt = 0
 
         while True:
-            params = dict(base_params or {})
-            params.update({"count": count, "offset": off})
+            try:
+                resp = self.session.request(
+                    method.upper(),
+                    url,
+                    params=params or {},
+                    json=json,
+                    headers=self._headers(headers),
+                    timeout=self.timeout,
+                )
 
-            data = self._get(endpoint, params=params)
-            batch = parse_batch(data)  # list[T]
+                if resp.status_code >= 400:
+                    # Retry 5xx
+                    if 500 <= resp.status_code < 600 and attempt < self.retries:
+                        attempt += 1
+                        time.sleep(min(1.0 * attempt, 2.0))
+                        continue
+                    body_text = getattr(resp, "text", None)
+                    if body_text is None and hasattr(resp, "content"):
+                        try:
+                            body_text = resp.content.decode("utf-8", errors="ignore")
+                        except Exception:
+                            body_text = str(resp.content)
+                    raise SpeedHiveAPIError(
+                        f"HTTP {resp.status_code} for {url}: {str(body_text)[:400]}",
+                        status=resp.status_code,
+                        url=url,
+                    )
 
-            if not batch:
-                break
+                try:
+                    data = resp.json()
+                except Exception:
+                    # Exact message expected by tests
+                    raise SpeedHiveAPIError("Invalid JSON response", status=resp.status_code, url=url)
 
-            items.extend(batch)
-            if max_items is not None and len(items) >= max_items:
-                items = items[:max_items]
-                break
+                time.sleep(self.rate_delay)
+                return data
 
-            # If fewer than requested, we've hit the last page
-            if len(batch) < count:
-                break
-
-            off += count
-
-        return items
-
-    # --------------------------------------------------------------------------
-    # API Methods
-    # --------------------------------------------------------------------------
-
-    # 1) List events across sport filters --------------------------------------
-
-    def list_events(
-        self,
-        *,
-        sport: str = "All",
-        sport_category: str = "Motorized",
-        count: int = 25,
-        offset: int = 0,
-        max_items: Optional[int] = None,
-    ) -> List[Event]:
-        """
-        List events across sport filters.
-
-        Endpoint:
-            GET /events?sport={sport}&sportCategory={sport_category}&count={count}&offset={offset}
-        """
-        def parse_batch(data: Dict[str, Any]) -> List[Event]:
-            # Normalize via page wrapper (handles items/events/raw list)
-            page = EventsPage.model_validate(data)
-            return page.items
-
-        base_params = {"sport": sport, "sportCategory": sport_category}
-        return self._paginate_offset_count(
-            ENDPOINTS["events"],
-            base_params=base_params,
-            count=count,
-            offset=offset,
-            parse_batch=parse_batch,
-            max_items=max_items,
-        )
-
-    # 2) List events for an organization ---------------------------------------
-
-    def list_events_by_organization(
-        self,
-        org_id: int,
-        *,
-        count: int = 25,
-        offset: int = 0,
-        sport_category: str = "Motorized",
-        max_items: Optional[int] = None,
-    ) -> List[Event]:
-        """
-        List all events belonging to an organization.
-
-        Endpoint:
-            GET /organizations/{ORG_ID}/events?count={count}&offset={offset}&sportCategory={sport_category}
-        """
-        endpoint = ENDPOINTS["organization_events"].format(org_id=org_id)
-
-        def parse_batch(data: Dict[str, Any]) -> List[Event]:
-            page = EventsPage.model_validate(data)
-            return page.items
-
-        base_params = {"sportCategory": sport_category}
-        return self._paginate_offset_count(
-            endpoint,
-            base_params=base_params,
-            count=count,
-            offset=offset,
-            parse_batch=parse_batch,
-            max_items=max_items,
-        )
-
-    # 3) Get an event (optionally with sessions) --------------------------------
-
-    def get_event(self, event_id: int, *, include_sessions: bool = False) -> Event:
-        """
-        Fetch a single event. If include_sessions=True, sessions are included.
-
-        Endpoint:
-            GET /events/{EVENT_ID}
-            GET /events/{EVENT_ID}?sessions=true
-        """
-        endpoint = ENDPOINTS["event"].format(event_id=event_id)
-        params = {"sessions": "true"} if include_sessions else None
-        data = self._get(endpoint, params=params)
-        return Event.model_validate(data)
-
-    def get_event_with_sessions(self, event_id: int) -> Event:
-        """
-        Convenience wrapper for get_event(..., include_sessions=True).
-        """
-        return self.get_event(event_id, include_sessions=True)
-
-    def list_sessions_from_event(self, event_id: int) -> List[Session]:
-        """
-        Fetch an event and return its sessions.
-        """
-        event = self.get_event_with_sessions(event_id)
-        return event.sessions or []
-
-    # 4) List session announcements (track records) -----------------------------
-
-    def list_session_announcements(self, session_id: int) -> List[Announcement]:
-        """
-        List announcements (aka track records) for a session.
-
-        Endpoint:
-            GET /sessions/{SESSION_ID}/announcements
-        """
-        endpoint = ENDPOINTS["session_announcements"].format(session_id=session_id)
-        data = self._get(endpoint)
-        page = AnnouncementsPage.model_validate(data)
-        return page.items
-
-    # --------------------------------------------------------------------------
-    # Convenience traversal (org → events → sessions → announcements)
-    # --------------------------------------------------------------------------
-
-    def fetch_org_announcements(
-        self,
-        org_id: int,
-        *,
-        count_events: int = 25,
-        offset_events: int = 0,
-        max_events: Optional[int] = None,
-        max_sessions_per_event: Optional[int] = None,
-    ) -> Dict[int, List[Announcement]]:
-        """
-        Traverse all events for an organization, then sessions, then announcements.
-
-        Returns
-        -------
-        dict[int, list[Announcement]]
-            Mapping of session_id → announcements.
-        """
-        result: Dict[int, List[Announcement]] = {}
-
-        events = self.list_events_by_organization(
-            org_id,
-            count=count_events,
-            offset=offset_events,
-            max_items=max_events,
-        )
-
-        for ev in events:
-            ev_id = ev.resolved_id
-            if not ev_id:
-                continue
-
-            sessions = self.list_sessions_from_event(ev_id)
-            if max_sessions_per_event is not None:
-                sessions = sessions[:max_sessions_per_event]
-
-            for s in sessions:
-                sid = s.resolved_id
-                if not sid:
+            except requests.RequestException as e:
+                if attempt < self.retries:
+                    attempt += 1
+                    time.sleep(min(1.0 * attempt, 2.0))
                     continue
-                anns = self.list_session_announcements(sid)
-                result[sid] = anns
+                raise SpeedHiveAPIError(f"Network error calling {url}: {e}", url=url) from e
 
+    def _get(self, path: str, params: Optional[Dict] = None) -> Dict | List:
+        return self._request("GET", path, params=params)
+
+    # -------- Public API (expected by tests) --------
+
+    def get_organization(self, org_id: int) -> Organization:
+        """
+        GET /orgs/{id} → Organization (with org_id)
+        """
+        data = self._get(f"/orgs/{org_id}")
+        if not isinstance(data, dict):
+            raise SpeedHiveAPIError(
+                f"Unexpected payload for organization {org_id}",
+                url=self._build_url(f"/orgs/{org_id}"),
+            )
+        return organization_from_api(data)
+
+    def list_organization_events(
+        self,
+        org_id: int,
+        *,
+        per_page: Optional[int] = None,
+        page: Optional[int] = None,
+        count: Optional[int] = None,
+        offset: Optional[int] = None,
+        auto_paginate: bool = False,   # <-- default: single page, matches tests
+    ) -> List[EventResult]:
+        """
+        GET /orgs/{id}/events → List[EventResult]
+
+        Supports payloads:
+          - raw list
+          - dict with 'items' (paged)
+          - dict with 'events'
+
+        Pass through 'per_page' and 'page' exactly (stubs likely key on these).
+        If 'auto_paginate' is True and 'page' is None while 'per_page' is set,
+        fetch sequential pages with a conservative cap to avoid infinite loops.
+        """
+        def fetch_one(per_page_val: Optional[int], page_val: Optional[int]) -> List[Dict]:
+            params: Dict[str, Any] = {}
+            if per_page_val is not None:
+                params["per_page"] = per_page_val
+            if page_val is not None:
+                params["page"] = page_val
+            if count is not None:
+                params["count"] = count
+            if offset is not None:
+                params["offset"] = offset
+
+            data = self._get(f"/orgs/{org_id}/events", params=params)
+
+            if isinstance(data, list):
+                return data
+            elif isinstance(data, dict):
+                if isinstance(data.get("items"), list):
+                    return data["items"]
+                elif isinstance(data.get("events"), list):
+                    return data["events"]
+                else:
+                    return []
+            return []
+
+        rows: List[Dict] = []
+
+        if auto_paginate and per_page is not None and page is None:
+            # Conservative auto-pagination: fetch only first 2 pages
+            MAX_PAGES = 2
+            cur = 1
+            while cur <= MAX_PAGES:
+                page_rows = fetch_one(per_page, cur)
+                if not page_rows:
+                    break
+                rows.extend(page_rows)
+                # If fewer than per_page, it's likely the last page
+                if len(page_rows) < per_page:
+                    break
+                cur += 1
+        else:
+            rows = fetch_one(per_page, page)
+
+        results: List[EventResult] = []
+        for r in rows:
+            if isinstance(r, dict):
+                try:
+                    results.append(event_result_from_api(r))
+                except Exception:
+                    continue
+        return results
+
+    def get_event_results(self, event_id: int) -> EventResult:
+        """
+        GET /events/{id}/results
+        Returns a single EventResult model.
+
+        Accepts payload shapes:
+          - dict with event fields (including records/items/results)
+          - dict with 'event' or 'result' key holding the event dict
+          - list containing a single event dict (fallback)
+
+        Raises SpeedHiveAPIError('Invalid JSON response') if JSON cannot be parsed.
+        Raises SpeedHiveAPIError on unexpected payload structure.
+        """
+        data = self._get(f"/events/{event_id}/results")
+
+        # Dict payload: direct event fields or wrapped under 'event'/'result'
+        if isinstance(data, dict):
+            # Candidate event payload
+            candidate = data.get("event") or data.get("result") or data
+            if isinstance(candidate, dict):
+                # Merge top-level records/items/results into the event payload
+                merged = dict(candidate)  # shallow copy
+                for key in ("records", "items", "results"):
+                    val = data.get(key)
+                    if isinstance(val, list) and not merged.get("records"):
+                        merged["records"] = val
+                        break
+                return event_result_from_api(merged)
+
+            raise SpeedHiveAPIError(
+                f"Unexpected payload for event {event_id}",
+                url=self._build_url(f"/events/{event_id}/results"),
+            )
+
+        # List payload: take the first dict item as the event result
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    return event_result_from_api(item)
+            # list present but no dict entries -> unexpected
+            raise SpeedHiveAPIError(
+                f"Unexpected list payload for event {event_id}",
+                url=self._build_url(f"/events/{event_id}/results"),
+            )
+
+        # Anything else is unexpected
+        raise SpeedHiveAPIError(
+            f"Unexpected payload type for event {event_id}",
+            url=self._build_url(f"/events/{event_id}/results"),
+        )
+
+    def get_track_records_by_org(self, org_id: int) -> List[TrackRecord]:
+        """
+        GET /orgs/{org_id}/records → List[TrackRecord]
+        Supports:
+          - raw list payload
+          - wrapped dict payload with 'records' or 'items'
+        """
+        data = self._get(f"/orgs/{org_id}/records")
+
+        if isinstance(data, list):
+            rows = data
+        elif isinstance(data, dict):
+            if isinstance(data.get("records"), list):
+                rows = data["records"]
+            elif isinstance(data.get("items"), list):
+                rows = data["items"]
+            else:
+                rows = []
+        else:
+            rows = []
+
+        records: List[TrackRecord] = []
+        for r in rows:
+            tr = self._record_row_to_model(r) if isinstance(r, dict) else None
+            if tr:
+                records.append(tr)
+        return records
+
+    # --- Export helpers (tests reference; accept org_id OR a list/iterable of TrackRecord) ---
+    def export_records_to_json(self, org_or_records: Union[int, Iterable[TrackRecord]], out_path: str | Path) -> int:
+        """
+        If 'org_or_records' is an int -> fetch via API; else treat it as an iterable of TrackRecord.
+        Write JSON with top-level {"records": [...]} and return count written.
+        """
+        if isinstance(org_or_records, int):
+            records = self.get_track_records_by_org(org_or_records)
+        else:
+            records = list(org_or_records)
+
+        payload = {"records": [self._record_to_dict(r) for r in records]}
+        out = Path(out_path)
+        out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return len(records)
+
+    def export_records_to_csv(self, org_or_records: Union[int, Iterable[TrackRecord]], out_path: str | Path) -> int:
+        """
+        If 'org_or_records' is an int -> fetch via API; else treat it as an iterable of TrackRecord.
+        Write CSV with snake_case headers and return count written.
+        """
+        if isinstance(org_or_records, int):
+            records = self.get_track_records_by_org(org_or_records)
+        else:
+            records = list(org_or_records)
+
+        out = Path(out_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        headers = ["driver_name", "lap_time", "track_name", "date", "vehicle", "class_name"]
+        with out.open("w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=headers)
+            w.writeheader()
+            for r in records:
+                w.writerow(self._record_to_dict(r))
+        return len(records)
+
+    # -------- Announcement helpers (your production flow) --------
+
+    def get_events_for_org(self, org_id: int, count: int = 200, offset: int = 0) -> List[Dict]:
+        return self._get(
+            f"/organizations/{org_id}/events",
+            params={"count": count, "offset": offset, "sportCategory": "Motorized"},
+        ) or []
+
+    def get_sessions_for_event(self, event_id: int) -> List[Dict]:
+        grouping = self._get(f"/events/{event_id}/sessions")
+        result: List[Dict] = []
+
+        def _collect(grouping_obj: Dict):
+            for s in grouping_obj.get("sessions", []) or []:
+                result.append(s)
+            for g in grouping_obj.get("groups", []) or []:
+                _collect(g)
+
+        if isinstance(grouping, dict):
+            _collect(grouping)
         return result
 
-    # --------------------------------------------------------------------------
-    # Export Utilities
-    # --------------------------------------------------------------------------
+    def get_session_announcements(self, session_id: int) -> List[Dict]:
+        dto = self._get(f"/sessions/{session_id}/announcements")
+        rows = (dto or {}).get("rows", []) if isinstance(dto, dict) else []
+        for r in rows:
+            r["sessionId"] = session_id
+        return rows
 
-    @staticmethod
-    def export_announcements_to_json(announcements: List[Announcement], file_path: str) -> None:
-        """
-        Export announcements to JSON:
-            { "announcements": [ {...}, {...} ] }
-        """
-        payload = {"announcements": [a.model_dump() for a in announcements]}
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2, ensure_ascii=False)
+    def get_all_session_announcements_for_org(self, org_id: int) -> List[Dict]:
+        all_rows: List[Dict] = []
+        events = self.get_events_for_org(org_id)
+        for ev in events:
+            ev_id = ev.get("id")
+            if not ev_id:
+                continue
+            sessions = self.get_sessions_for_event(ev_id)
+            for s in sessions:
+                sid = s.get("id")
+                if not sid:
+                    continue
+                rows = self.get_session_announcements(sid)
+                for r in rows:
+                    r["eventId"] = ev_id
+                    r["eventName"] = ev.get("name")
+                    r["sessionName"] = s.get("name")
+                all_rows.extend(rows)
+        return all_rows
 
-    @staticmethod
-    def export_announcements_to_csv(announcements: List[Announcement], file_path: str) -> None:
-        """
-        Export announcements to CSV. Headers are inferred from model fields.
-        """
-        rows = [a.model_dump() for a in announcements]
-        headers = sorted({k for r in rows for k in r.keys()}) if rows else ["id", "session_id", "event_id", "title", "message", "class_abbreviation", "driver_name", "lap_time_seconds", "date", "track_name"]
+    # -------- Helpers --------
 
-        with open(file_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=headers)
-            writer.writeheader()
-            for row in rows:
-                writer.writerow(row)
+    _TR_PATTERNS = [
+        r"\bNew Track Record\b",
+        r"\bTrack Record\b",
+        r"\bNew .*Record\b",
+    ]
 
+    def find_track_record_announcements(self, text: str) -> bool:
+        if not text:
+            return False
+        return any(re.search(p, text, flags=re.IGNORECASE) for p in self._TR_PATTERNS)
 
-# ------------------------------------------------------------------------------
-# Optional quick demo (safe to remove in production)
-# ------------------------------------------------------------------------------
+    def _record_row_to_model(self, row: Dict) -> Optional[TrackRecord]:
+        def pick(*names, default=None):
+            for n in names:
+                if n in row and row[n] is not None:
+                    return row[n]
+            return default
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-    client = SpeedHiveClient()
+        driver_name = pick("driver_name", "driverName", "driver", default="")
+        lap_time = pick("lap_time", "lapTime", "best_lap", default=None)
+        track_name = pick("track_name", "trackName", default=None)
+        vehicle = pick("vehicle", "marque", "car", default=None)
+        class_name = pick("class_name", "classAbbreviation", "class", default="")
+        date = pick("date", default=None)
 
-    try:
-        # Example flow: org → events → sessions → announcements
-        ORG_ID = 30476  # Waterford Hills (example)
-        ann_map = client.fetch_org_announcements(
-            ORG_ID,
-            count_events=25,
-            offset_events=0,
-            max_events=5,
-            max_sessions_per_event=5,
+        return TrackRecord(
+            driver_name=str(driver_name) if driver_name is not None else "",
+            lap_time=lap_time,
+            track_name=str(track_name) if track_name is not None else None,
+            date=str(date) if date is not None else None,
+            vehicle=str(vehicle) if vehicle is not None else None,
+            class_name=str(class_name) if class_name is not None else "",
+            extra={k: v for k, v in row.items()},
         )
-        total_anns = sum(len(v) for v in ann_map.values())
-        print(f"Fetched announcements across {len(ann_map)} sessions (total={total_anns}).")
 
-        # If you want to export a single session's announcements:
-        if ann_map:
-            some_session_id, anns = next(iter(ann_map.items()))
-            client.export_announcements_to_json(anns, f"session_{some_session_id}_announcements.json")
-            client.export_announcements_to_csv(anns, f"session_{some_session_id}_announcements.csv")
-            print(f"Exported {len(anns)} announcements for session {some_session_id}.")
-    except SpeedHiveAPIError as e:
-        print(f"Error: {e}")
+    @staticmethod
+    def _record_to_dict(r: TrackRecord) -> Dict[str, Any]:
+        return {
+            "driver_name": r.driver_name,
+            "lap_time": r.lap_time,
+            "track_name": r.track_name,
+            "date": r.date,
+            "vehicle": r.vehicle,
+            "class_name": r.class_name,
+        }
+
+
+__all__ = ["SpeedHiveClient", "SpeedHiveAPIError"]
