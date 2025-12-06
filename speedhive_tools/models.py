@@ -1,15 +1,11 @@
 
 # speedhive_tools/models.py
 from __future__ import annotations
-
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 
-
-# -----------------------------
-# Core dataclasses (snake_case fields for tests)
-# -----------------------------
+# ------------------------ Core dataclasses ------------------------
 
 @dataclass
 class Organization:
@@ -24,7 +20,6 @@ class Organization:
     id: Optional[int] = None
     extra: Dict[str, Any] = field(default_factory=dict)
 
-
 @dataclass
 class Location:
     id: Optional[int] = None
@@ -37,42 +32,35 @@ class Location:
     lat: Optional[float] = None
     extra: Dict[str, Any] = field(default_factory=dict)
 
-
 @dataclass
 class EventResult:
     # Tests expect event_id and event_name (snake_case)
     event_id: Optional[int] = None
-    event_name: str = ""           # tests read EventResult.event_name
+    event_name: str = ""  # tests read EventResult.event_name
     sport: Optional[str] = None
     startDate: Optional[datetime] = None
     updatedAt: Optional[datetime] = None
     location: Optional[Location] = None
     organization: Optional[Organization] = None
-
     # Records (tests access EventResult.records)
     records: List[Dict[str, Any]] = field(default_factory=list)
-
     # Optional camelCase/legacy fields for convenience
     id: Optional[int] = None
     name: Optional[str] = None
     extra: Dict[str, Any] = field(default_factory=dict)
 
-
 @dataclass
 class TrackRecord:
     # Snake_case fields expected by tests
     driver_name: str
-    lap_time: Optional[float | str] = None
+    lap_time: Optional[Union[float, str]] = None
     track_name: Optional[str] = None
     date: Optional[str] = None
     vehicle: Optional[str] = None
     class_name: str = ""
     extra: Dict[str, Any] = field(default_factory=dict)
 
-
-# -----------------------------
-# Helpers: API JSON → dataclasses
-# -----------------------------
+# ------------------------ Helpers: API JSON → dataclasses ------------------------
 
 def _parse_dt(value: Optional[str]) -> Optional[datetime]:
     if not value:
@@ -87,7 +75,6 @@ def _parse_dt(value: Optional[str]) -> Optional[datetime]:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except Exception:
         return None
-
 
 def organization_from_api(d: Dict[str, Any]) -> Organization:
     country = d.get("country")
@@ -104,7 +91,6 @@ def organization_from_api(d: Dict[str, Any]) -> Organization:
         id=d.get("id"),
         extra={k: v for k, v in d.items() if k not in {"org_id", "id", "name", "org_name", "city", "country", "logo", "url"}},
     )
-
 
 def location_from_api(d: Dict[str, Any]) -> Location:
     country = d.get("country")
@@ -123,22 +109,19 @@ def location_from_api(d: Dict[str, Any]) -> Location:
         }},
     )
 
-
 def event_result_from_api(d: Dict[str, Any]) -> EventResult:
     """
     Map a generic event payload to EventResult.
     Accepts either:
-      - snake_case: event_id / event_name / records
-      - camelCase:  id / name
-      - list-like fields: items / results → records
+    - snake_case: event_id / event_name / records
+    - camelCase: id / name
+    - list-like fields: items / results → records
     """
     loc = d.get("location")
     org = d.get("organization")
-
     # IDs and names (support both variants)
     event_id = d.get("event_id", d.get("id"))
     event_name = d.get("event_name", d.get("name") or "")
-
     # Records (prefer explicit 'records', then 'items', then 'results', then 'data')
     records = []
     for key in ("records", "items", "results", "data"):
@@ -164,7 +147,6 @@ def event_result_from_api(d: Dict[str, Any]) -> EventResult:
             "records", "items", "results", "data"
         }},
     )
-
 
 __all__ = [
     "Organization",
