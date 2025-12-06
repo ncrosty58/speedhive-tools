@@ -12,12 +12,11 @@ import builtins
 import types
 from typing import Any, Dict, Optional
 import pytest
+
 from speedhive_tools.client import SpeedHiveClient, SpeedHiveAPIError
 from speedhive_tools.models import TrackRecord, EventResult, Organization
 
-# ----------------------------------------------------------------------
-# Helpers
-# ----------------------------------------------------------------------
+# ----------------------- Helpers -----------------------
 class StubResponse:
     """Minimal stub of requests.Response for testing."""
     def __init__(
@@ -31,7 +30,6 @@ class StubResponse:
         self._json = json_data
         self.text = text or ""
         self._raise_json = raise_json
-
         # Provide a bytes payload like real requests.Response.content
         try:
             if self.text:
@@ -50,7 +48,6 @@ class StubResponse:
             raise ValueError("Invalid JSON")
         return self._json
 
-
 def make_stub_request(expected_url_prefix: str, responses_by_url: Dict[str, StubResponse]):
     """
     Return a function to stub requests.Session.request.
@@ -65,18 +62,14 @@ def make_stub_request(expected_url_prefix: str, responses_by_url: Dict[str, Stub
         return resp
     return _stub_request
 
-# ----------------------------------------------------------------------
-# Fixtures
-# ----------------------------------------------------------------------
+# ----------------------- Fixtures -----------------------
 @pytest.fixture
 def client(monkeypatch):
     # Build client with a deterministic base URL for matching
     c = SpeedHiveClient(base_url="https://api.speedhive.com", timeout=3, retries=0)
     return c
 
-# ----------------------------------------------------------------------
-# Tests: get_organization
-# ----------------------------------------------------------------------
+# ----------------------- Tests: get_organization -----------------------
 def test_get_organization_success(client, monkeypatch):
     org_id = 30476
     endpoint = f"https://api.speedhive.com/orgs/{org_id}"
@@ -115,9 +108,7 @@ def test_get_organization_http_error(client, monkeypatch):
         client.get_organization(org_id)
     assert "HTTP 404" in str(exc.value)
 
-# ----------------------------------------------------------------------
-# Tests: get_event_results
-# ----------------------------------------------------------------------
+# ----------------------- Tests: get_event_results -----------------------
 def test_get_event_results_success(client, monkeypatch):
     event_id = 123456
     endpoint = f"https://api.speedhive.com/events/{event_id}/results"
@@ -168,9 +159,7 @@ def test_get_event_results_invalid_json(client, monkeypatch):
         client.get_event_results(event_id)
     assert "Invalid JSON response" in str(exc.value)
 
-# ----------------------------------------------------------------------
-# Tests: get_track_records_by_org
-# ----------------------------------------------------------------------
+# ----------------------- Tests: get_track_records_by_org -----------------------
 def test_get_track_records_by_org_success(client, monkeypatch):
     org_id = 30476
     endpoint = f"https://api.speedhive.com/orgs/{org_id}/records"
@@ -249,9 +238,7 @@ def test_get_track_records_by_org_http_error(client, monkeypatch):
         client.get_track_records_by_org(org_id)
     assert "HTTP 500" in str(exc.value)
 
-# ----------------------------------------------------------------------
-# Tests: pagination in list_organization_events
-# ----------------------------------------------------------------------
+# ----------------------- Tests: pagination in list_organization_events -----------------------
 def test_list_organization_events_paged_items_key(client, monkeypatch):
     org_id = 30476
     endpoint = f"https://api.speedhive.com/orgs/{org_id}/events"
@@ -294,6 +281,7 @@ def test_list_organization_events_paged_items_key(client, monkeypatch):
         if page == 1:
             return StubResponse(200, page1)
         return StubResponse(200, page2)
+
     monkeypatch.setattr(type(client.session), "request", _stub)
     events = client.list_organization_events(org_id, per_page=1)
     assert len(events) == 2
@@ -326,9 +314,7 @@ def test_list_organization_events_items_missing_fallback(client, monkeypatch):
     assert len(events) == 1
     assert events[0].event_id == 333
 
-# ----------------------------------------------------------------------
-# Tests: export helpers
-# ----------------------------------------------------------------------
+# ----------------------- Tests: export helpers -----------------------
 def test_export_records_to_json(tmp_path, client):
     records = [
         TrackRecord(
@@ -379,9 +365,7 @@ def test_export_records_to_csv(tmp_path, client):
     assert "driver_name" in row or "driverName" in row  # depending on model field names
     assert "lap_time" in row or "lapTime" in row
 
-# ----------------------------------------------------------------------
-# Edge cases
-# ----------------------------------------------------------------------
+# ----------------------- Edge cases -----------------------
 def test_request_non_2xx_error_message_includes_body(client, monkeypatch):
     # Use a direct call to _request to verify error content
     endpoint = "orgs/invalid"
@@ -414,3 +398,82 @@ def test_invalid_json_parsing_raises(client, monkeypatch):
     with pytest.raises(SpeedHiveAPIError) as exc:
         client._request("GET", endpoint)
     assert "Invalid JSON response" in str(exc.value)
+
+# --- Lap data tests (NEW) ---
+def test_get_session_lap_data_success_list(client, monkeypatch):
+    session_id = 10998445
+    position = 3
+    endpoint = f"https://api.speedhive.com/sessions/{session_id}/lapdata/{position}/laps"
+    payload = [
+        {"lap": 1, "timeMs": 91234, "gapMs": None},
+        {"lap": 2, "timeMs": 90567, "gapMs": 200},
+    ]
+    monkeypatch.setattr(
+        type(client.session),
+        "request",
+        make_stub_request(
+            "https://api.speedhive.com/",
+            {endpoint: StubResponse(200, payload)},
+        ),
+    )
+    rows = client.get_session_lap_data(session_id, position)
+    assert isinstance(rows, list)
+    assert len(rows) == 2
+    assert rows[0]["lap"] == 1
+
+def test_get_session_lap_data_wrapped_dict(client, monkeypatch):
+    session_id = 10998445
+    position = 3
+    endpoint = f"https://api.speedhive.com/sessions/{session_id}/lapdata/{position}/laps"
+    payload = {"laps": [{"lap": 1, "timeMs": 91234}]}
+    monkeypatch.setattr(
+        type(client.session),
+        "request",
+        make_stub_request(
+            "https://api.speedhive.com/",
+            {endpoint: StubResponse(200, payload)},
+        ),
+    )
+    rows = client.get_session_lap_data(session_id, position)
+    assert len(rows) == 1
+    assert rows[0]["lap"] == 1
+
+def test_get_session_lap_data_http_error(client, monkeypatch):
+    session_id = 10998445
+    position = 99
+    endpoint = f"https://api.speedhive.com/sessions/{session_id}/lapdata/{position}/laps"
+    monkeypatch.setattr(
+        type(client.session),
+        "request",
+        make_stub_request(
+            "https://api.speedhive.com/",
+            {endpoint: StubResponse(404, {"error": "not found"}, text="not found")},
+        ),
+    )
+    with pytest.raises(SpeedHiveAPIError) as exc:
+        client.get_session_lap_data(session_id, position)
+    assert "HTTP 404" in str(exc.value)
+
+def test_export_session_lapdata_to_ndjson(tmp_path, client, monkeypatch):
+    session_id = 10998445
+    position = 3
+    endpoint = f"https://api.speedhive.com/sessions/{session_id}/lapdata/{position}/laps"
+    payload = [
+        {"lap": 1, "timeMs": 91234},
+        {"lap": 2, "timeMs": 90567},
+    ]
+    monkeypatch.setattr(
+        type(client.session),
+        "request",
+        make_stub_request(
+            "https://api.speedhive.com/",
+            {endpoint: StubResponse(200, payload)},
+        ),
+    )
+    out_fp = tmp_path / "laps.ndjson"
+    count = client.export_session_lapdata_to_ndjson(session_id, position, str(out_fp))
+    assert count == 2
+    lines = out_fp.read_text("utf-8").splitlines()
+    assert len(lines) == 2
+    obj = json.loads(lines[0])
+    assert obj.get("lap") == 1

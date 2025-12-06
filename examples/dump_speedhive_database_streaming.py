@@ -16,6 +16,7 @@ Outputs (under ./dump):
   dump/org_{ORG_ID}/sessions.ndjson          # sessions for those events (streamed)
   dump/org_{ORG_ID}/announcements.ndjson     # announcements per session (streamed)
   dump/org_{ORG_ID}/records.json             # normalized records via client exporter
+  dump/org_{ORG_ID}/lapdata.ndjson           # lap rows per session + position (NEW)
 
 You can safely re-run; processed orgs are marked in SQLite and skipped.
 """
@@ -132,7 +133,6 @@ def crawl_global_events_streaming(client: SpeedHiveClient, conn: sqlite3.Connect
     print(f"[global] streaming events with sport={SPORT} category={SPORT_CATEGORY} …")
     events_path = OUT_DIR / "events_global.ndjson"
     orgs_discovered_path = OUT_DIR / "organizations_discovered.ndjson"
-
     # streaming writers
     with NDJSONStream(events_path) as ev_writer, NDJSONStream(orgs_discovered_path) as org_writer:
         total = 0
@@ -147,17 +147,14 @@ def crawl_global_events_streaming(client: SpeedHiveClient, conn: sqlite3.Connect
                 continue
             ev_writer.write(ev)
             total += 1
-
             oid = extract_org_id(ev)
             if oid is not None:
                 # write discovered org id (could be duplicates; we dedupe in SQLite)
                 org_writer.write({"organizationId": oid})
                 db_upsert_org(conn, oid)
-
             if RATE_DELAY:
                 time.sleep(RATE_DELAY / 10.0)  # very small pacing per item
-
-        print(f"[global] wrote {total:,} event rows")
+    print(f"[global] wrote {total:,} event rows")
 
 def process_one_org(client: SpeedHiveClient, conn: sqlite3.Connection, org_id: int):
     print(f"[org {org_id}] start")
@@ -199,9 +196,7 @@ def process_one_org(client: SpeedHiveClient, conn: sqlite3.Connection, org_id: i
     sessions_path = org_dir / "sessions.ndjson"
     announcements_path = org_dir / "announcements.ndjson"
     with NDJSONStream(sessions_path) as sess_writer, NDJSONStream(announcements_path) as ann_writer:
-        # Re-read events from file (streamed) to stay consistent and low-RAM
-        # If you prefer not to re-read, you could re-hit the API (but we just wrote them).
-        # Here, we parse each line and fetch sessions/announcements.
+        # iterate events from file (streamed) to stay consistent and low-RAM
         count_sessions = 0
         count_ann = 0
         # iterate events from file
@@ -227,10 +222,10 @@ def process_one_org(client: SpeedHiveClient, conn: sqlite3.Connection, org_id: i
                     s["eventId"] = ev_id
                     sess_writer.write(s)
                     count_sessions += 1
-
                     sid = s.get("id")
                     if not sid:
                         continue
+
                     # announcements for session
                     try:
                         rows = client.get_session_announcements(int(sid))
@@ -243,10 +238,17 @@ def process_one_org(client: SpeedHiveClient, conn: sqlite3.Connection, org_id: i
                         ann_writer.write(a)
                         count_ann += 1
 
+                    # lapdata for session (positions 1..N) (NEW)
+                    try:
+                        lap_written = stream_session_lapdata(client, org_dir, ev_id, int(sid))
+                        if lap_written:
+                            print(f"[session {sid}] lapdata rows={lap_written}")
+                    except SpeedHiveAPIError as e:
+                        print(f"[session {sid}] ERROR stream_session_lapdata: {e}")
+
                     if RATE_DELAY:
                         time.sleep(RATE_DELAY / 5.0)
-
-        print(f"[org {org_id}] sessions={count_sessions:,} announcements={count_ann:,}")
+    print(f"[org {org_id}] sessions={count_sessions:,} announcements={count_ann:,}")
 
     # 5) records via helper (writes JSON per org)
     try:
@@ -259,6 +261,35 @@ def process_one_org(client: SpeedHiveClient, conn: sqlite3.Connection, org_id: i
     db_mark_processed(conn, org_id)
     print(f"[org {org_id}] done")
 
+# --- Lap data streaming (NEW) ---
+LAPDATA_TOP_N = int(os.getenv("LAPDATA_TOP_N", "3"))  # positions 1..N per session
+
+def stream_session_lapdata(client: SpeedHiveClient, org_dir: Path, ev_id: int, session_id: int) -> int:
+    """
+    Fetch lap data for positions 1..LAPDATA_TOP_N for a session and append to NDJSON.
+    Returns number of lap rows written.
+    """
+    out_path = org_dir / "lapdata.ndjson"
+    written = 0
+    with NDJSONStream(out_path) as lap_writer:
+        for pos in range(1, max(1, LAPDATA_TOP_N) + 1):
+            try:
+                rows = client.get_session_lap_data(session_id, pos)
+            except SpeedHiveAPIError as e:
+                print(f"[session {session_id}] ERROR get_session_lap_data pos={pos}: {e}")
+                rows = []
+            for r in rows:
+                if isinstance(r, dict):
+                    r = dict(r)
+                    r.setdefault("eventId", ev_id)
+                    r.setdefault("sessionId", session_id)
+                    r.setdefault("position", pos)
+                lap_writer.write(r)
+                written += 1
+            if RATE_DELAY:
+                time.sleep(RATE_DELAY / 10.0)
+    return written
+
 def main():
     client = SpeedHiveClient(
         api_key=API_KEY,
@@ -269,7 +300,6 @@ def main():
         pool_connections=20,
         pool_maxsize=40,
     )
-
     conn = db_connect()
 
     # A) Stream global events and discover org IDs (on-disk dedupe)
