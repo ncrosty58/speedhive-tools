@@ -1,196 +1,206 @@
-
 # speedhive-tools
 
-A Python toolkit for interacting with the **MYLAPS Speedhive Event Results API** and automating the extraction of **track record announcements** (a.k.a. *announcements*) from event sessions.
+Utilities and a robust Python client for working with MYLAPS Speedhive **Event Results**: organizations, events, sessions, announcements, and track/class records.
 
-> **Status:** Early, but usable. Public endpoints—no auth key required. Typed models (Pydantic v2), robust client, and ready-to-run examples are included.
+This README documents **the actual endpoints your client calls** and shows **how to use your Python API** to reach them.
 
----
-
-## ✨ Features
-
-- **Typed models** for Organizations, Events, Sessions, Announcements (Pydantic v2)
-- **API Client** with retries, timeouts, logging, and offset/count pagination
-- **End-to-end traversal**: Organization → Events → Sessions → Announcements
-- **Utilities** for lap-time parsing, announcement text parsing, JSON/CSV I/O
-- **Examples & runner scripts** for quick usage
-- **Tests** (pytest) with stubbed HTTP
+> **Important:** Use the **Event Results API** base:
+>
+> `https://eventresults-api.speedhive.com/api/v0.2.3/eventresults`  (public Swagger lists this family and version)  citeturn4search15
+>
+> Your client builds paths under that base and uses the **`organizations`** prefix (offset/count pagination). citeturn1search3
 
 ---
 
-## 🔌 Supported Endpoints
+## Table of Contents
 
-The client targets the public Event Results API:
-
-- List events across sport filters:
-  ```http
-  GET https://eventresults-api.speedhive.com/api/v0.2.3/eventresults/events?sport=All&sportCategory=Motorized&count=25&offset=0
-  ```
-- List events for an organization:
-  ```http
-  GET https://eventresults-api.speedhive.com/api/v0.2.3/eventresults/organizations/{ORGANIZATION_ID}/events?count=25&offset=0&sportCategory=Motorized
-  ```
-- Get an event with sessions:
-  ```http
-  GET https://eventresults-api.speedhive.com/api/v0.2.3/eventresults/events/{EVENT_ID}?sessions=true
-  ```
-- List announcements (track records) for a session:
-  ```http
-  GET https://eventresults-api.speedhive.com/api/v0.2.3/eventresults/sessions/{SESSION_ID}/announcements
-  ```
-
-> **Note:** These endpoints are derived from Speedhive’s public Event Results API. No API key is required for these read-only calls.
+- [Quick Start](#quick-start)
+- [Endpoints used by this client](#endpoints-used-by-this-client)
+- [How to call endpoints via the Python API](#how-to-call-endpoints-via-the-python-api)
+  - [Get an organization](#get-an-organization)
+  - [List events for an organization](#list-events-for-an-organization)
+  - [Get event results](#get-event-results)
+  - [Get sessions for an event](#get-sessions-for-an-event)
+  - [Get announcements for a session](#get-announcements-for-a-session)
+  - [Walk org → events → sessions → announcements](#walk-org--events--sessions--announcements)
+  - [Get records by organization](#get-records-by-organization)
+  - [Export JSON/CSV](#export-jsoncsv)
+- [Headers, retries, and errors](#headers-retries-and-errors)
+- [Notes](#notes)
 
 ---
 
-## 📦 Installation
+## Quick Start
 
-### Option 1: Clone the repository
 ```bash
-git clone https://github.com/ncrosty58/speedhive-tools.git
-cd speedhive-tools
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-pip install -U pip
-pip install -r requirements.txt  # or: pip install pydantic requests
+pip install requests
 ```
 
-### Option 2: Using `pyproject.toml`
-If `pyproject.toml` lists dependencies:
-```bash
-pip install -e .
-```
-
----
-
-## 🧱 Project Structure
-
-```
-speedhive-tools/
-├─ speedhive_tools/
-│  ├─ __init__.py
-│  ├─ client.py           # API client for Event Results
-│  ├─ models.py           # Pydantic v2 models (Event, Session, Announcement, etc.)
-│  ├─ utils.py            # Lap time parsing, I/O helpers, text parsing
-├─ examples/
-│  ├─ api_usage_demo.py   # Example usage of client + models
-├─ ├─ example_runner.py      # Quick CLI for common workflows
-├─ tests/
-│  ├─ test_client.py      # Pytest with stubbed HTTP
-├─ README.md
-├─ LICENSE
-├─ pyproject.toml
-```
-
----
-
-## 🚀 Quick Start
-
-### Fetch announcements (track records) for an organization
 ```python
 from speedhive_tools.client import SpeedHiveClient
 
-client = SpeedHiveClient()
-org_id = 30476  # Example: Waterford Hills
-ann_map = client.fetch_org_announcements(
-    org_id,
-    count_events=25,
-    offset_events=0,
-    max_events=5,
-    max_sessions_per_event=5,
+# Use the documented Event Results base
+client = SpeedHiveClient(
+    base_url="https://eventresults-api.speedhive.com/api/v0.2.3/eventresults",  # citeturn4search15
+    timeout=30,
+    retries=2,
+    rate_delay=0.25,
 )
-print({sid: len(anns) for sid, anns in ann_map.items()})
 ```
 
-### List events by organization
+The client sets the standard headers (including optional `Apikey` if provided) and handles retry/backoff for GETs. citeturn1search3
+
+---
+
+## Endpoints used by this client
+
+All paths below are relative to the base: `.../api/v0.2.3/eventresults`. citeturn4search15
+
+- **GET** `/organizations/{org_id}` — organization details (mapped to `Organization`). citeturn1search3
+- **GET** `/organizations/{org_id}/events` — list events (offset/count; client also auto‑paginates). citeturn1search3
+- **GET** `/events/{event_id}/results` — event result + optional `records` list; mapped to `EventResult`. citeturn1search3
+- **GET** `/events/{event_id}/sessions` — nested groups/sessions; client flattens to a list. citeturn1search3
+- **GET** `/sessions/{session_id}/announcements` — rows with announcement text; client normalizes. citeturn1search3
+- **GET** `/organizations/{org_id}/records` — organization’s track/class records; mapped to `TrackRecord`. citeturn1search3
+
+> The existence of the Event Results API and version **v0.2.3** is publicly listed in Swagger for Speedhive Event Results. citeturn4search15
+
+---
+
+## How to call endpoints via the Python API
+
+Below are concrete calls using your `SpeedHiveClient` to reach each endpoint and consume the payloads.
+
+### Get an organization
+
 ```python
 from speedhive_tools.client import SpeedHiveClient
-
 client = SpeedHiveClient()
-org_events = client.list_events_by_organization(30476, count=25, offset=0)
-for e in org_events[:5]:
-    print(e.display_name, e.start_date, e.end_date)
+org = client.get_organization(30476)  # Waterford Hills
+print(org.name, org.city, org.country)
 ```
 
-### Get event + sessions, then list announcements for first session
+*What it does:* calls **GET** `/organizations/30476` and maps the response to `Organization`. citeturn1search3
+
+---
+
+### List events for an organization
+
 ```python
-from speedhive_tools.client import SpeedHiveClient
-
-client = SpeedHiveClient()
-event = client.get_event_with_sessions(123456)
-sessions = event.sessions or []
-if sessions:
-    session_id = sessions[0].resolved_id
-    announcements = client.list_session_announcements(session_id)
-    for a in announcements[:5]:
-        print(a.driver_name, a.class_abbreviation, a.lap_time_seconds)
+events = client.list_organization_events(30476, auto_paginate=True)
+for ev in events:
+    print(ev.event_name, ev.startDate)
 ```
 
+*What it does:* calls **GET** `/organizations/{org_id}/events` with offset/count pagination (auto‑iterating until empty), then maps items to `EventResult`. citeturn1search3
+
 ---
 
-## 🛠️ Examples
+### Get event results
 
-Run the bundled examples to see the API in action:
-
-```bash
-# Organization details / events / records
-python example_runner.py org 30476
-python example_runner.py events 30476 --per-page 50 --top 5 --out out/events.json
-python example_runner.py event-results 123456 --out out/event_123456.json
-python example_runner.py records 30476 --json out/wh_records.json --csv out/wh_records.csv --show-seconds
-
-# Direct API usage demo (typed models)
-python examples/api_usage_demo.py
+```python
+ev = client.get_event_results(1234)
+print(ev.event_name, len(ev.records))
 ```
 
+*What it does:* calls **GET** `/events/{event_id}/results`, accepts both list/object shapes, merges any `records` into the result, and returns `EventResult`. citeturn1search3
+
 ---
 
-## 🧪 Testing
+### Get sessions for an event
 
-```bash
-pip install pytest
-pytest -q
+```python
+sessions = client.get_sessions_for_event(1234)
+print([s.get("id") for s in sessions])
 ```
 
-- Tests use `pytest` + `monkeypatch` to stub network calls.
-- Coverage can be added with `pytest-cov`.
+*What it does:* calls **GET** `/events/{event_id}/sessions`, walks nested `groups`/`sessions`, and returns a flat list of session dicts. citeturn1search3
 
 ---
 
-## ⚙️ Configuration
+### Get announcements for a session
 
-No authentication is required for public endpoints. You can override defaults via environment variables:
+```python
+rows = client.get_session_announcements(9001)
+texts = [client.get_announcement_text(r) for r in rows]
+print(texts[:3])
+```
 
-- `SPEEDHIVE_BASE_URL` – default: `https://eventresults-api.speedhive.com/api/v0.2.3/eventresults`
-- `SPEEDHIVE_USER_AGENT` – default: `speedhive-tools/1.0 (+https://github.com/ncrosty58/speedhive-tools)`
-
----
-
-## 🧩 Notes & Caveats
-
-- API response shapes can vary slightly (e.g., `items`, `events`, raw lists). Models use aliases and page wrappers to normalize these.
-- Lap times may be strings (e.g., `"1:01.861"`) or numbers—in both cases we compute `lap_time_seconds` for convenience.
-- If you share sample payloads, we can tighten model fields and add enums for session types.
+*What it does:* calls **GET** `/sessions/{session_id}/announcements`, injects `sessionId`, and normalizes the text from multiple possible keys. citeturn1search3
 
 ---
 
-## 📜 License
+### Walk org → events → sessions → announcements
 
-MIT — see `LICENSE`.
+```python
+all_rows = client.get_all_session_announcements_for_org(30476)
+print(f"rows={len(all_rows)}")
+
+# Filter only track/class record announcements
+record_rows = [r for r in all_rows if client.find_track_record_announcements(client.get_announcement_text(r))]
+print(f"record-like rows={len(record_rows)}")
+
+# Parse into TrackRecord models
+records = []
+for r in record_rows:
+    tr = client.parse_track_record_announcement(r)
+    ok, reason = client.is_record_valid(tr)
+    if ok or (reason and "Missing classAbbreviation" in str(reason)):
+        records.append(tr)
+```
+
+*What it does:* sequentially calls the endpoints in the previous sections, enriches each row with event/session metadata, and runs your parsing & validation logic. citeturn1search3
+
+> The example script `examples/get_records_example.py` demonstrates the same single‑pass workflow and logs malformed entries and raw record lines. citeturn1search1turn1search3
 
 ---
 
-## 🙌 Contributing
+### Get records by organization
 
-PRs welcome! Please:
-1. Open an issue describing your change.
-2. Add/adjust tests.
-3. Keep the README up-to-date.
+```python
+normalized = client.get_track_records_by_org(30476)
+for tr in normalized:
+    print(tr.driver_name, tr.lap_time, tr.class_name)
+```
+
+*What it does:* calls **GET** `/organizations/{org_id}/records`, accepts list/object shapes (`records` or `items`), and normalizes each row to `TrackRecord`. citeturn1search3
 
 ---
 
-## 💬 Contact
+### Export JSON/CSV
 
-Maintainer: @ncrosty58
+```python
+client.export_records_to_json(normalized, "records_snake.json")
+client.export_records_to_json_camel(normalized, "records_camel.json")
+client.export_records_to_csv(normalized, "records.csv")
+```
 
-For questions or feature requests, open a GitHub issue in this repository.
+*What it does:* converts `TrackRecord` models to either snake‑case JSON, camelCase JSON (with `sessionId` when present), or CSV. citeturn1search3
+
+---
+
+## Headers, retries, and errors
+
+Your client sends:
+
+```
+Accept: application/json
+User-Agent: speedhive-tools (+https://github.com/ncrosty58/speedhive-tools)
+Apikey: <your_api_key>  # only if provided
+```
+
+It uses a pooled `requests.Session` with robust retry/backoff for idempotent methods (HTTP 429/5xx). JSON parse errors, HTTP ≥ 400, and network exceptions raise `SpeedHiveAPIError(message, status, url)`. citeturn1search3
+
+---
+
+## Notes
+
+- The Event Results API and version **v0.2.3** are publicly discoverable in Swagger; this README sticks to those endpoints. citeturn4search15
+- Practice‑related APIs have their own base (Swagger UI is publicly visible) but are **not used** by this client. citeturn4search6
+- Response shapes vary (list vs object with `items`/`events`/`rows`); the client already handles those variants. citeturn1search3
+
+---
+
+## License
+
+MIT (see `LICENSE`).
