@@ -1,20 +1,17 @@
 
 # speedhive_tools/client.py
 from __future__ import annotations
-
 import time
 import re
 import csv
 import json
 from typing import Dict, List, Optional, Any, Iterable, Union, Iterator
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from datetime import datetime
-
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-
 from .models import (
     Organization,
     EventResult,
@@ -27,7 +24,6 @@ from .utils import parse_date
 
 class SpeedHiveAPIError(Exception):
     """Raised when the Speedhive API returns an error or the request fails."""
-
     def __init__(self, message: str, status: int | None = None, url: str | None = None):
         super().__init__(message)
         self.status = status
@@ -47,7 +43,7 @@ class SpeedHiveClient:
     def __init__(
         self,
         api_key: str | None = None,
-        rate_delay: float = 0.0,         # optional small pacing between batches (not per request)
+        rate_delay: float = 0.0,  # optional small pacing between batches (not per request)
         base_url: str = DEFAULT_BASE_URL,
         timeout: int = 30,
         retries: int = 2,
@@ -60,12 +56,13 @@ class SpeedHiveClient:
         self.timeout = timeout
         self.retries = max(0, int(retries))
 
-        # Detect path family:
-        # - api.speedhive.com → 'orgs' (page/per_page)
-        # - eventresults-api.../eventresults → 'organizations' (offset/count)
-        if "api.speedhive.com" in self.base_url:
+        # Detect path family based on hostname (EXACT match), not substring.
+        parsed = urlparse(self.base_url)
+        host = (parsed.netloc or "").lower()
+        if host == "api.speedhive.com":
             self._path_family = "orgs"
         else:
+            # eventresults-api.speedhive.com and anything else → organizations
             self._path_family = "organizations"
 
         # Pooled session with centralized headers.
@@ -91,7 +88,7 @@ class SpeedHiveClient:
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
 
-    # -------------------- Internal helpers --------------------
+    # ---------------------- Internal helpers ----------------------
 
     def _orgs_prefix(self) -> str:
         return "orgs" if self._path_family == "orgs" else "organizations"
@@ -117,7 +114,6 @@ class SpeedHiveClient:
             if headers:
                 req_headers = dict(self.session.headers)
                 req_headers.update(headers)
-
             resp = self.session.request(
                 method.upper(),
                 url,
@@ -154,7 +150,7 @@ class SpeedHiveClient:
     def _get(self, path: str, params: Optional[Dict] = None) -> Dict | List:
         return self._request("GET", path, params=params)
 
-    # -------------------- Public API --------------------
+    # ---------------------- Public API ----------------------
 
     def get_organization(self, org_id: int) -> Organization:
         data = self._get(f"/{self._orgs_prefix()}/{org_id}")
@@ -184,14 +180,12 @@ class SpeedHiveClient:
             q = dict(params or {})
             q.update({"count": count, "offset": offset})
             data = self._get(path, params=q)
-
             if isinstance(data, list):
                 items = data
             elif isinstance(data, dict):
                 items = data.get("items") or data.get("events") or data.get("rows") or []
             else:
                 items = []
-
             if not isinstance(items, list) or not items:
                 break
 
@@ -203,7 +197,6 @@ class SpeedHiveClient:
 
             if len(items) < count:
                 break
-
             offset += count
             if self.rate_delay:
                 time.sleep(self.rate_delay)
@@ -226,7 +219,6 @@ class SpeedHiveClient:
         # If API returns a list directly, just return it
         if isinstance(data, list):
             return data
-
         if not isinstance(data, dict):
             return []
 
@@ -251,6 +243,7 @@ class SpeedHiveClient:
                 all_items.extend(batch)
             else:
                 break
+
             if self.rate_delay:
                 time.sleep(self.rate_delay)
 
@@ -299,7 +292,8 @@ class SpeedHiveClient:
                 # Single page
                 q_count = count or (per_page or 200)
                 q_off = offset or 0
-                data = self._get(f"/{self._orgs_prefix()}/{org_id}/events", params={"count": q_count, "offset": q_off})
+                data = self._get(f"/{self._orgs_prefix()}/{org_id}/events",
+                                 params={"count": q_count, "offset": q_off})
                 if isinstance(data, list):
                     events_raw = data
                 elif isinstance(data, dict):
@@ -321,7 +315,8 @@ class SpeedHiveClient:
         """Convenience list (raw dicts), adhering to the active path family."""
         if self._path_family == "orgs":
             # Page/per_page → single page only if caller requests it explicitly.
-            data = self._get(f"/{self._orgs_prefix()}/{org_id}/events", params={"per_page": count, "page": 1})
+            data = self._get(f"/{self._orgs_prefix()}/{org_id}/events",
+                             params={"per_page": count, "page": 1})
             if isinstance(data, list):
                 return data
             if isinstance(data, dict):
@@ -347,12 +342,10 @@ class SpeedHiveClient:
                         merged["records"] = val
                         break
                 return event_result_from_api(merged)
-
             raise SpeedHiveAPIError(
                 f"Unexpected payload for event {event_id}",
                 url=self._build_url(f"/events/{event_id}/results"),
             )
-
         if isinstance(data, list):
             for item in data:
                 if isinstance(item, dict):
@@ -361,7 +354,6 @@ class SpeedHiveClient:
                 f"Unexpected list payload for event {event_id}",
                 url=self._build_url(f"/events/{event_id}/results"),
             )
-
         raise SpeedHiveAPIError(
             f"Unexpected payload type for event {event_id}",
             url=self._build_url(f"/events/{event_id}/results"),
@@ -388,14 +380,13 @@ class SpeedHiveClient:
                 records.append(tr)
         return records
 
-    # -------------------- Export helpers --------------------
+    # ---------------------- Export helpers ----------------------
 
     def export_records_to_json(self, org_or_records: Union[int, Iterable[TrackRecord]], out_path: str | Path) -> int:
         if isinstance(org_or_records, int):
             records = self.get_track_records_by_org(org_or_records)
         else:
             records = list(org_or_records)
-
         payload = {"records": [self._record_to_dict(r) for r in records]}
         Path(out_path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return len(records)
@@ -408,6 +399,7 @@ class SpeedHiveClient:
 
         out = Path(out_path)
         out.parent.mkdir(parents=True, exist_ok=True)
+
         headers = ["driver_name", "lap_time", "track_name", "date", "vehicle", "class_name"]
         with out.open("w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=headers)
@@ -416,7 +408,7 @@ class SpeedHiveClient:
                 w.writerow(self._record_to_dict(r))
         return len(records)
 
-    # -------------------- Announcements (sequential) --------------------
+    # ---------------------- Announcements (sequential) ----------------------
 
     def get_sessions_for_event(self, event_id: int) -> List[Dict]:
         grouping = self._get(f"/events/{event_id}/sessions")
@@ -444,6 +436,7 @@ class SpeedHiveClient:
     def get_all_session_announcements_for_org(self, org_id: int) -> List[Dict]:
         """Sequentially walk events → sessions → announcements and enrich rows."""
         all_rows: List[Dict] = []
+
         # Use appropriate iteration style for events
         if self._path_family == "orgs":
             events = self._paginate_pages(f"/{self._orgs_prefix()}/{org_id}/events", per_page=200, start_page=1)
@@ -454,8 +447,8 @@ class SpeedHiveClient:
             ev_id = ev.get("id") or ev.get("event_id")
             if not ev_id:
                 continue
-            sessions = self.get_sessions_for_event(int(ev_id))
 
+            sessions = self.get_sessions_for_event(int(ev_id))
             event_dt = self._event_start_dt(ev)
             event_date_iso = self._to_iso_date(event_dt)
             track_name = self._track_name_from_event_session(ev, {})
@@ -464,6 +457,7 @@ class SpeedHiveClient:
                 sid = s.get("id")
                 if not sid:
                     continue
+
                 rows = self.get_session_announcements(sid)
                 for r in rows:
                     r["eventId"] = ev_id
@@ -478,7 +472,8 @@ class SpeedHiveClient:
 
         return all_rows
 
-    # -------------------- Detection & parsing --------------------
+    # ---------------------- Detection & parsing ----------------------
+
     _TR_PATTERNS = [
         re.compile(r"(?i)\bNew\s+Track\s+Record\b"),
         re.compile(r"(?i)\bNew\s+Class\s+Record\b"),
@@ -490,13 +485,13 @@ class SpeedHiveClient:
         re.compile(r"(?i)\bexhibition\b"),
         re.compile(r"(?i)\bnot\s+recognized\b"),
     ]
-
     _TIME_MMSS = r"\b\d{1,2}:\d{2}\.\d{3}\b"
-    _CLASS_ABBR = r"\b[A-Z]{1,4}(?:-[A-Z0-9]{1,3})?\b"
+    # Allow letters AND digits in the first segment (fixes T4, SM2, GT1, etc.)
+    _CLASS_ABBR = r"\b[A-Z0-9]{1,4}(?:-[A-Z0-9]{1,3})?\b"
     _PAREN_CONTENT = r"\(([^)]+)\)"
     _SEPS = r"[\-\u2013\u2014\u2022]"
-
     _PREFIX = re.compile(r"(?i)New\s+(?:Track|Class)\s+Record")
+
     RE_FOR_BY_IN = re.compile(
         rf"{_PREFIX.pattern}\s*\(\s*({_TIME_MMSS})\s*\)\s*for\s+({_CLASS_ABBR})\s+by\s+(.+?)\s+in\s+(.+?)(?:[.!]\s*$|\s*$)"
     )
@@ -506,22 +501,29 @@ class SpeedHiveClient:
     RE_FOR_BY_NOPAREN = re.compile(
         rf"{_PREFIX.pattern}\s*({_TIME_MMSS})\s*for\s+({_CLASS_ABBR})\s+by\s+(.+?)(?:[.!]\s*$|\s*$)"
     )
+
     PRIMARY = re.compile(
         rf"{_PREFIX.pattern}.*?"
         rf"{_SEPS}\s*({_CLASS_ABBR})\s*{_SEPS}\s*({_TIME_MMSS})"
         rf"\s*{_SEPS}\s*(.+?)\s*(?:{_PAREN_CONTENT})?"
         rf"(?:\s*{_SEPS}\s*("
-        r"\b\d{4}-\d{2}-\d{2}\b|\b[A-Za-z]{3,9} \d{1,2}, \d{4}\b|\b\d{1,2}/\d{1,2}/\d{4}\b"
+        r"\b\d{4}-\d{2}-\d{2}\b|"
+        r"\b[A-Za-z]{3,9} \d{1,2}, \d{4}\b|"
+        r"\b\d{1,2}/\d{1,2}/\d{4}\b"
         r"))?"
     )
+
     ALTERNATE = re.compile(
         rf"{_PREFIX.pattern}.*?"
         rf"\s*(.+?)\s*(?:{_PAREN_CONTENT})?\s*{_SEPS}\s*({_TIME_MMSS})"
         rf"\s*{_SEPS}\s*({_CLASS_ABBR})"
         rf"(?:\s*{_SEPS}\s*("
-        r"\b\d{4}-\d{2}-\d{2}\b|\b[A-Za-z]{3,9} \d{1,2}, \d{4}\b|\b\d{1,2}/\d{1,2}/\d{4}\b"
+        r"\b\d{4}-\d{2}-\d{2}\b|"
+        r"\b[A-Za-z]{3,9} \d{1,2}, \d{4}\b|"
+        r"\b\d{1,2}/\d{1,2}/\d{4}\b"
         r"))?"
     )
+
     FIND_TIME = re.compile(_TIME_MMSS)
     CLASS_FULL = re.compile(f"^{_CLASS_ABBR}$")
     SEPARATOR_SPLIT = re.compile(_SEPS)
@@ -553,12 +555,14 @@ class SpeedHiveClient:
             v = row.get(k)
             if isinstance(v, str) and v.strip():
                 return v.strip()
+
         for k in ("cells", "columns", "data", "values"):
             v = row.get(k)
             if isinstance(v, list):
                 strings = [s.strip() for s in v if isinstance(s, str) and s.strip()]
                 if strings:
                     return sorted(strings, key=len, reverse=True)[0]
+
         strings = [str(v).strip() for v in row.values() if isinstance(v, str) and str(v).strip()]
         return sorted(strings, key=len, reverse=True)[0] if strings else ""
 
@@ -634,7 +638,7 @@ class SpeedHiveClient:
         # Alternate separator (DRIVER – TIME – CLASS – (DATE))
         m = self.ALTERNATE.search(raw)
         if m:
-            driver_raw, maybe_marque, lap_time, class_abbr, maybe_date = (list(m.groups()) + [""])[:5]
+            driver_raw, maybe_marque, lap_time, class_abbr, maybe_date = (list(m.groups()) + [""])[0:5]
             final_date = row.get("eventDate")
             if not final_date and maybe_date:
                 for fmt in ("%Y-%m-%d", "%b %d, %Y", "%B %d, %Y", "%m/%d/%Y", "%d/%m/%Y"):
@@ -659,6 +663,7 @@ class SpeedHiveClient:
             lap_time = tf.group(0)
             tokens = [t.strip() for t in self.SEPARATOR_SPLIT.split(raw) if t.strip()]
             class_abbr = next((t for t in tokens if self.CLASS_FULL.fullmatch(t)), None)
+
             date_iso = row.get("eventDate")
             if not date_iso:
                 for t in tokens:
@@ -678,8 +683,6 @@ class SpeedHiveClient:
                                     pass
                         if date_iso:
                             break
-                    if date_iso:
-                        break
 
             marque = None
             for t in tokens:
@@ -718,7 +721,7 @@ class SpeedHiveClient:
 
         return None
 
-    # -------------------- Helpers used above --------------------
+    # ---------------------- Helpers used above ----------------------
 
     def _event_start_dt(self, ev: dict) -> datetime | None:
         for k in ("startDateTime", "startTime", "start_date_time", "startDate", "start_date", "date", "eventDate"):
@@ -726,6 +729,7 @@ class SpeedHiveClient:
             dt = self._to_dt(v if isinstance(v, str) else (str(v) if v is not None else None))
             if dt:
                 return dt
+
         timing = ev.get("timing") or ev.get("schedule") or {}
         if isinstance(timing, dict):
             for k in ("start", "startTime", "startDateTime"):
@@ -746,6 +750,7 @@ class SpeedHiveClient:
                 v = d.get(k)
                 if isinstance(v, str) and v.strip():
                     return v.strip()
+
         loc = ev.get("location") or sess.get("location")
         if isinstance(loc, dict):
             for k in ("name", "trackName", "circuitName"):
