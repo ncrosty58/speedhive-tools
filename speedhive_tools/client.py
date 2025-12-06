@@ -9,7 +9,7 @@ import json
 from typing import Dict, List, Optional, Any, Iterable, Union, Iterator
 from pathlib import Path
 from urllib.parse import urljoin
-from datetime import datetime, timezone
+from datetime import datetime
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -24,6 +24,7 @@ from .models import (
 )
 from .utils import parse_date
 
+
 class SpeedHiveAPIError(Exception):
     """Raised when the Speedhive API returns an error or the request fails."""
 
@@ -36,10 +37,9 @@ class SpeedHiveAPIError(Exception):
 DEFAULT_HEADERS = {
     "Accept": "application/json",
     "User-Agent": "speedhive-tools (+https://github.com/ncrosty58/speedhive-tools)",
-    # Many Speedhive clients include Origin; harmless and sometimes required depending on proxying.
-    "Origin": "https://sporthive.com",
 }
 
+# Default to the working Event Results base; tests can override via base_url.
 DEFAULT_BASE_URL = "https://eventresults-api.speedhive.com/api/v0.2.3/eventresults"
 
 
@@ -47,7 +47,7 @@ class SpeedHiveClient:
     def __init__(
         self,
         api_key: str | None = None,
-        rate_delay: float = 0.0,         # optional, used only between batches (not every request)
+        rate_delay: float = 0.0,         # optional small pacing between batches (not per request)
         base_url: str = DEFAULT_BASE_URL,
         timeout: int = 30,
         retries: int = 2,
@@ -59,6 +59,14 @@ class SpeedHiveClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.retries = max(0, int(retries))
+
+        # Detect path family:
+        # - api.speedhive.com → 'orgs' (page/per_page)
+        # - eventresults-api.../eventresults → 'organizations' (offset/count)
+        if "api.speedhive.com" in self.base_url:
+            self._path_family = "orgs"
+        else:
+            self._path_family = "organizations"
 
         # Pooled session with centralized headers.
         self.session = requests.Session()
@@ -85,6 +93,9 @@ class SpeedHiveClient:
 
     # -------------------- Internal helpers --------------------
 
+    def _orgs_prefix(self) -> str:
+        return "orgs" if self._path_family == "orgs" else "organizations"
+
     def _build_url(self, path: str) -> str:
         if path.startswith("/"):
             return f"{self.base_url}{path}"
@@ -102,12 +113,10 @@ class SpeedHiveClient:
         """Centralized request with pooled session and retry/backoff."""
         url = self._build_url(path)
         try:
-            # Merge temporary headers only if provided
+            req_headers = None
             if headers:
                 req_headers = dict(self.session.headers)
                 req_headers.update(headers)
-            else:
-                req_headers = None
 
             resp = self.session.request(
                 method.upper(),
@@ -120,24 +129,23 @@ class SpeedHiveClient:
         except requests.RequestException as e:
             raise SpeedHiveAPIError(f"Network error calling {url}: {e}", url=url) from e
 
-        # Non-2xx: raise with short body preview for diagnostics
         if resp.status_code >= 400:
-            body_text = None
+            preview = ""
             try:
-                body_text = resp.text
+                preview = (resp.text or "").strip()[:400]
             except Exception:
-                pass
-            preview = (body_text or "").strip()[:400]
+                preview = ""
             raise SpeedHiveAPIError(
                 f"HTTP {resp.status_code} for {url}: {preview}",
                 status=resp.status_code,
                 url=url,
             )
 
-        # Some endpoints can return 204 (No Content)
-        if resp.status_code == 204 or not resp.content:
+        # 204 No Content → return empty dict
+        if resp.status_code == 204:
             return {}
 
+        # Parse JSON; if invalid, raise "Invalid JSON response".
         try:
             return resp.json()
         except Exception:
@@ -148,18 +156,18 @@ class SpeedHiveClient:
 
     # -------------------- Public API --------------------
 
-    # Normalize to the "organizations" family for consistency with DEFAULT_BASE_URL.
     def get_organization(self, org_id: int) -> Organization:
-        data = self._get(f"/organizations/{org_id}")
+        data = self._get(f"/{self._orgs_prefix()}/{org_id}")
         if not isinstance(data, dict):
             raise SpeedHiveAPIError(
                 f"Unexpected payload for organization {org_id}",
-                url=self._build_url(f"/organizations/{org_id}"),
+                url=self._build_url(f"/{self._orgs_prefix()}/{org_id}"),
             )
         return organization_from_api(data)
 
-    # ---------- Pagination (offset/limit style) ----------
+    # ---------- Pagination helpers ----------
 
+    # Offset/count paginator (for 'organizations' family)
     def _paginate_offset(
         self,
         path: str,
@@ -177,7 +185,6 @@ class SpeedHiveClient:
             q.update({"count": count, "offset": offset})
             data = self._get(path, params=q)
 
-            # Accept list or dict payloads
             if isinstance(data, list):
                 items = data
             elif isinstance(data, dict):
@@ -198,24 +205,58 @@ class SpeedHiveClient:
                 break
 
             offset += count
-
-            # Optional gentle pacing between pages (not per request)
             if self.rate_delay:
                 time.sleep(self.rate_delay)
 
-    def iter_organization_events(self, org_id: int, *, count: int = 200, start_offset: int = 0) -> Iterator[Dict]:
-        """Yield all events for an organization (sequential)."""
-        yield from self._paginate_offset(
-            f"/organizations/{org_id}/events",
-            count=count,
-            start_offset=start_offset,
-            params={"sportCategory": "Motorized"},
-        )
+    # Page/per_page paginator (for 'orgs' family, respecting totalPages)
+    def _paginate_pages(
+        self,
+        path: str,
+        *,
+        per_page: int = 50,
+        start_page: int = 1,
+        params: Optional[dict] = None,
+    ) -> List[Dict]:
+        """Fetch all pages using per_page/page until totalPages is reached."""
+        # First request to learn totalPages
+        q = dict(params or {})
+        q.update({"per_page": per_page, "page": start_page})
+        data = self._get(path, params=q)
 
-    # Backwards-compatible 'list' variant for callers expecting a list.
-    def get_events_for_org(self, org_id: int, count: int = 200, offset: int = 0) -> List[Dict]:
-        return list(self.iter_organization_events(org_id, count=count, start_offset=offset))
+        # If API returns a list directly, just return it
+        if isinstance(data, list):
+            return data
 
+        if not isinstance(data, dict):
+            return []
+
+        items = data.get("items") or []
+        total_pages = data.get("totalPages") or data.get("total_pages") or 1
+
+        all_items: List[Dict] = []
+        all_items.extend(items)
+
+        # Fetch remaining pages 2..total_pages
+        for page in range(start_page + 1, int(total_pages) + 1):
+            q = dict(params or {})
+            q.update({"per_page": per_page, "page": page})
+            d = self._get(path, params=q)
+            if isinstance(d, list):
+                all_items.extend(d)
+                break
+            elif isinstance(d, dict):
+                batch = d.get("items") or []
+                if not batch:
+                    break
+                all_items.extend(batch)
+            else:
+                break
+            if self.rate_delay:
+                time.sleep(self.rate_delay)
+
+        return all_items
+
+    # Backwards-compatible 'list' variant for callers expecting a list of EventResult.
     def list_organization_events(
         self,
         org_id: int,
@@ -227,22 +268,72 @@ class SpeedHiveClient:
         auto_paginate: bool = False,
     ) -> List[EventResult]:
         """
-        Legacy method retained for compatibility. Internally uses offset pagination.
+        List events for an organization, supporting both page/per_page ('orgs') and
+        offset/count ('organizations') styles, matching unit-test expectations.
+        - For 'orgs': iterate pages until totalPages, even when auto_paginate=False.
+        - For 'organizations': use offset/count iteration if auto_paginate=True,
+          or single page (count/offset) if not.
         """
-        if auto_paginate:
-            raw_rows = self.get_events_for_org(org_id, count=count or 200, offset=offset or 0)
-        else:
-            # Single page-ish behavior for compatibility
-            raw_rows = self.get_events_for_org(org_id, count=per_page or count or 200, offset=offset or 0)
+        events_raw: List[Dict] = []
 
+        if self._path_family == "orgs":
+            # Page/per_page style with totalPages
+            ppg = per_page or 50
+            start_p = page or 1
+            items = self._paginate_pages(
+                f"/{self._orgs_prefix()}/{org_id}/events",
+                per_page=ppg,
+                start_page=start_p,
+            )
+            events_raw = items if isinstance(items, list) else []
+        else:
+            # Offset/count style
+            if auto_paginate:
+                events_raw = list(self._paginate_offset(
+                    f"/{self._orgs_prefix()}/{org_id}/events",
+                    count=count or (per_page or 200),
+                    start_offset=offset or 0,
+                    params=None,
+                ))
+            else:
+                # Single page
+                q_count = count or (per_page or 200)
+                q_off = offset or 0
+                data = self._get(f"/{self._orgs_prefix()}/{org_id}/events", params={"count": q_count, "offset": q_off})
+                if isinstance(data, list):
+                    events_raw = data
+                elif isinstance(data, dict):
+                    events_raw = data.get("items") or data.get("events") or []
+                else:
+                    events_raw = []
+
+        # Map raw dicts to EventResult
         results: List[EventResult] = []
-        for r in raw_rows:
+        for r in events_raw:
             if isinstance(r, dict):
                 try:
                     results.append(event_result_from_api(r))
                 except Exception:
                     continue
         return results
+
+    def get_events_for_org(self, org_id: int, count: int = 200, offset: int = 0) -> List[Dict]:
+        """Convenience list (raw dicts), adhering to the active path family."""
+        if self._path_family == "orgs":
+            # Page/per_page → single page only if caller requests it explicitly.
+            data = self._get(f"/{self._orgs_prefix()}/{org_id}/events", params={"per_page": count, "page": 1})
+            if isinstance(data, list):
+                return data
+            if isinstance(data, dict):
+                return data.get("items") or []
+            return []
+        else:
+            return list(self._paginate_offset(
+                f"/{self._orgs_prefix()}/{org_id}/events",
+                count=count,
+                start_offset=offset,
+                params=None,
+            ))
 
     def get_event_results(self, event_id: int) -> EventResult:
         data = self._get(f"/events/{event_id}/results")
@@ -277,7 +368,7 @@ class SpeedHiveClient:
         )
 
     def get_track_records_by_org(self, org_id: int) -> List[TrackRecord]:
-        data = self._get(f"/organizations/{org_id}/records")
+        data = self._get(f"/{self._orgs_prefix()}/{org_id}/records")
         if isinstance(data, list):
             rows = data
         elif isinstance(data, dict):
@@ -325,50 +416,6 @@ class SpeedHiveClient:
                 w.writerow(self._record_to_dict(r))
         return len(records)
 
-    # -------------------- Date helpers --------------------
-
-    def _to_dt(self, s: str | None) -> datetime | None:
-        if not isinstance(s, str) or not s.strip():
-            return None
-        try:
-            return parse_date(s, tz_aware=True)
-        except ValueError:
-            return None
-
-    def _event_start_dt(self, ev: dict) -> datetime | None:
-        for k in ("startDateTime", "startTime", "start_date_time", "startDate", "start_date", "date", "eventDate"):
-            v = ev.get(k)
-            dt = self._to_dt(v if isinstance(v, str) else (str(v) if v is not None else None))
-            if dt:
-                return dt
-        timing = ev.get("timing") or ev.get("schedule") or {}
-        if isinstance(timing, dict):
-            for k in ("start", "startTime", "startDateTime"):
-                v = timing.get(k)
-                dt = self._to_dt(v if isinstance(v, str) else (str(v) if v is not None else None))
-                if dt:
-                    return dt
-        return None
-
-    @staticmethod
-    def _to_iso_date(dt: datetime | None) -> str | None:
-        return dt.date().isoformat() if isinstance(dt, datetime) else None
-
-    @staticmethod
-    def _track_name_from_event_session(ev: dict, sess: dict) -> str | None:
-        for d in (ev, sess):
-            for k in ("trackName", "circuitName", "track", "circuit", "venue", "location"):
-                v = d.get(k)
-                if isinstance(v, str) and v.strip():
-                    return v.strip()
-        loc = ev.get("location") or sess.get("location")
-        if isinstance(loc, dict):
-            for k in ("name", "trackName", "circuitName"):
-                v = loc.get(k)
-                if isinstance(v, str) and v.strip():
-                    return v.strip()
-        return None
-
     # -------------------- Announcements (sequential) --------------------
 
     def get_sessions_for_event(self, event_id: int) -> List[Dict]:
@@ -397,11 +444,18 @@ class SpeedHiveClient:
     def get_all_session_announcements_for_org(self, org_id: int) -> List[Dict]:
         """Sequentially walk events → sessions → announcements and enrich rows."""
         all_rows: List[Dict] = []
-        for ev in self.iter_organization_events(org_id):
-            ev_id = ev.get("id")
+        # Use appropriate iteration style for events
+        if self._path_family == "orgs":
+            events = self._paginate_pages(f"/{self._orgs_prefix()}/{org_id}/events", per_page=200, start_page=1)
+        else:
+            events = list(self._paginate_offset(f"/{self._orgs_prefix()}/{org_id}/events", count=200, start_offset=0))
+
+        for ev in events:
+            ev_id = ev.get("id") or ev.get("event_id")
             if not ev_id:
                 continue
-            sessions = self.get_sessions_for_event(ev_id)
+            sessions = self.get_sessions_for_event(int(ev_id))
+
             event_dt = self._event_start_dt(ev)
             event_date_iso = self._to_iso_date(event_dt)
             track_name = self._track_name_from_event_session(ev, {})
@@ -413,20 +467,18 @@ class SpeedHiveClient:
                 rows = self.get_session_announcements(sid)
                 for r in rows:
                     r["eventId"] = ev_id
-                    r["eventName"] = ev.get("name")
+                    r["eventName"] = ev.get("name") or ev.get("event_name")
                     r["sessionName"] = s.get("name")
                     r["eventDate"] = r.get("eventDate") or event_date_iso
                     r["trackName"] = r.get("trackName") or track_name
                 all_rows.extend(rows)
 
-            # Optional minimal pacing between events (sequential, not per request)
             if self.rate_delay:
                 time.sleep(self.rate_delay)
 
         return all_rows
 
     # -------------------- Detection & parsing --------------------
-    # Pre-compiled patterns to avoid recompilation per row.
     _TR_PATTERNS = [
         re.compile(r"(?i)\bNew\s+Track\s+Record\b"),
         re.compile(r"(?i)\bNew\s+Class\s+Record\b"),
@@ -666,30 +718,49 @@ class SpeedHiveClient:
 
         return None
 
-    # -------------------- Validation & mapping --------------------
+    # -------------------- Helpers used above --------------------
+
+    def _event_start_dt(self, ev: dict) -> datetime | None:
+        for k in ("startDateTime", "startTime", "start_date_time", "startDate", "start_date", "date", "eventDate"):
+            v = ev.get(k)
+            dt = self._to_dt(v if isinstance(v, str) else (str(v) if v is not None else None))
+            if dt:
+                return dt
+        timing = ev.get("timing") or ev.get("schedule") or {}
+        if isinstance(timing, dict):
+            for k in ("start", "startTime", "startDateTime"):
+                v = timing.get(k)
+                dt = self._to_dt(v if isinstance(v, str) else (str(v) if v is not None else None))
+                if dt:
+                    return dt
+        return None
 
     @staticmethod
-    def is_record_valid(tr: TrackRecord) -> tuple[bool, str | None]:
-        if not tr:
-            return False, "Parser returned None"
-        if not (tr.lap_time and isinstance(tr.lap_time, str)):
-            return False, "Missing lapTime"
-        if not (tr.class_name and tr.class_name.strip()):
-            return False, "Missing classAbbreviation"
-        if not (tr.driver_name and tr.driver_name.strip()):
-            return False, "Missing driverName"
-        if isinstance(tr.vehicle, str) and tr.vehicle.strip() == tr.lap_time.strip():
-            return False, "Marque equals lapTime (malformed text)"
-        return True, None
+    def _to_iso_date(dt: datetime | None) -> str | None:
+        return dt.date().isoformat() if isinstance(dt, datetime) else None
 
-    def get_track_records_from_org_announcements(self, org_id: int) -> List[TrackRecord]:
-        rows = self.get_all_session_announcements_for_org(org_id)
-        records: List[TrackRecord] = []
-        for r in rows:
-            tr = self.parse_track_record_announcement(r)
-            if tr:
-                records.append(tr)
-        return records
+    @staticmethod
+    def _track_name_from_event_session(ev: dict, sess: dict) -> str | None:
+        for d in (ev, sess):
+            for k in ("trackName", "circuitName", "track", "circuit", "venue", "location"):
+                v = d.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+        loc = ev.get("location") or sess.get("location")
+        if isinstance(loc, dict):
+            for k in ("name", "trackName", "circuitName"):
+                v = loc.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+        return None
+
+    def _to_dt(self, s: str | None) -> datetime | None:
+        if not isinstance(s, str) or not s.strip():
+            return None
+        try:
+            return parse_date(s, tz_aware=True)
+        except ValueError:
+            return None
 
     def _record_row_to_model(self, row: Dict) -> Optional[TrackRecord]:
         def pick(*names, default=None):
@@ -712,7 +783,6 @@ class SpeedHiveClient:
             date=str(date) if date is not None else None,
             vehicle=str(vehicle) if vehicle is not None else None,
             class_name=str(class_name) if class_name is not None else "",
-            # Keep full row only if small; else consider pruning in the future
             extra={k: v for k, v in row.items()},
         )
 
@@ -727,7 +797,6 @@ class SpeedHiveClient:
             "class_name": r.class_name,
         }
 
-    # camelCase JSON exporter (includes sessionId)
     @staticmethod
     def _record_to_camel_dict(r: TrackRecord) -> Dict[str, Any]:
         sess_id = None
