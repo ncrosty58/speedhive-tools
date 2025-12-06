@@ -220,3 +220,6 @@ data/
 *.json
 *.csv
 *.txt
+dump/
+*.ndjson
+*.sqlite*
