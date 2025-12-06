@@ -1,226 +1,287 @@
 
-# speedhive-tools
+# speedhive-tools — Python Client
 
-Utilities and a robust Python client for working with **MYLAPS Speedhive Event Results**—organizations, events, sessions, announcements, and (derived) track/class records. The client targets the **Event Results API**:
+A robust, retry-friendly Python client for the **Speedhive Event Results API**. This README documents the endpoints implemented in `client.py`, highlights pagination behavior across different API host families, and provides usage examples plus export helpers.
 
-> **Base URL:** `https://eventresults-api.speedhive.com/api/v0.2.3/eventresults`  
-> Swagger documents paths like `/events`, `/events/{id}/sessions`, `/organizations/{id}`, `/organizations/{id}/events`, `/sessions/{id}/announcements`, etc.  
-> Sources: [Event Results Swagger](https://eventresults-api.speedhive.com/swagger/docs/v1), [Speedhive site](https://speedhive.mylaps.com/), [MYLAPS Speedhive overview](https://mylaps.com/motorsports/services/speedhive/)
+> **Targets**: Works with Speedhive's event results endpoints hosted under both:
+>
+> - `https://eventresults-api.speedhive.com/api/v0.2.3/eventresults` *(default)* — uses the `organizations` path family.
+> - `https://api.speedhive.com` *(if you set `base_url` to this host)* — uses the `orgs` path family.
+>
+> The client auto-detects which path family to use based on the hostname you pass in `base_url`.
 
 ---
 
-## Table of Contents
-- [Quick Start](#quick-start)
-- [Global Events Feed (New)](#global-events-feed-new)
-- [Endpoints used by this client](#endpoints-used-by-this-client)
-- [Python Examples](#python-examples)
-  - [Get an organization](#get-an-organization)
-  - [List events for an organization](#list-events-for-an-organization)
-  - [Get event details (+sessions)](#get-event-details-sessions)
-  - [Get sessions for an event](#get-sessions-for-an-event)
-  - [Get announcements for a session](#get-announcements-for-a-session)
-  - [Walk org → events → sessions → announcements](#walk-org--events--sessions--announcements)
-  - [Records (derived from announcements)](#records-derived-from-announcements)
-  - [Export JSON/CSV](#export-jsoncsv)
-- [Low‑RAM Streaming Dump](#low-ram-streaming-dump)
-- [Headers, retries, and errors](#headers-retries-and-errors)
-- [Notes](#notes)
-- [License](#license)
+## Installation
+
+```bash
+pip install speedhive-tools
+```
+
+(Or include this client in your project as a module. Ensure `requests` is available.)
 
 ---
 
 ## Quick Start
 
-> **Heads‑up:** In the current repo layout, the client module file is `speedhive_client.py`. Until you package this as `speedhive_tools/`, import from the file directly. (If you publish to PyPI later, the `from speedhive_tools.client import SpeedHiveClient` import will be correct.)
-
-```bash
-pip install requests
-```
-
 ```python
-# Current repo layout (top-level module file):
-from speedhive_client import SpeedHiveClient
+from speedhive_tools.client import SpeedHiveClient
 
 client = SpeedHiveClient(
-    base_url="https://eventresults-api.speedhive.com/api/v0.2.3/eventresults",
+    api_key="YOUR_API_KEY",                 # optional; some endpoints may work without
+    base_url="https://eventresults-api.speedhive.com/api/v0.2.3/eventresults",  # default
     timeout=30,
     retries=2,
-    rate_delay=0.25,
+    rate_delay=0.0,
 )
+
+# Fetch an organization by ID
+org = client.get_organization(12345)
+
+# List events for an organization (auto pagination based on host family)
+events = client.list_organization_events(12345)
+
+# Get results for a specific event
+result = client.get_event_results(67890)
+
+# Get track records for an org
+records = client.get_track_records_by_org(12345)
+
+# Export records in CSV
+client.export_records_to_csv(12345, "out/records.csv")
 ```
 
 ---
 
-## Global Events Feed (New)
+## Authentication & Headers
 
-Two public client methods expose the **global `/events`** feed. The API supports filters `sport`, `sportCategory` and pagination via `count`/`offset`. It also accepts `startDate`, `endDate`, and `country`. (Leave `sport` unset to get all sports—`"All"` is a UI label, not a valid enum value.)  
-Source: [Event Results Swagger](https://eventresults-api.speedhive.com/swagger/docs/v1)
+The client sets these default headers:
 
-```python
-# Stream raw global events (low RAM)
-for ev in client.iter_global_events(
-        sport=None,  # None = all sports
-        sport_category="Motorized",
-        count=200,
-        start_date=None, end_date=None, country=None):
-    print(ev.get("id"), ev.get("name"))
+- `Accept: application/json`
+- `User-Agent: speedhive-tools (+https://github.com/ncrosty58/speedhive-tools)`
+- If you provide `api_key`, it sets `Apikey: <YOUR_API_KEY>`.
 
-# Return mapped EventResult-like objects from the global feed (auto-paginates)
-results = client.list_global_events(
-    sport=None, sport_category="Motorized", count=200)
-for er in results:
-    print(er.event_id, er.event_name)
-```
-
-> The `/events` path and its query params (`sport`, `sportCategory`, `count`, `offset`, `startDate`, `endDate`, `country`) are documented in the Event Results Swagger.
+Retries are enabled for idempotent methods (`GET`, `HEAD`, `OPTIONS`) with a backoff factor of `0.5`. You can adjust connection pool sizes via `pool_connections` and `pool_maxsize` in the constructor.
 
 ---
 
-## Endpoints used by this client
+## Path Families & Pagination Semantics
 
-All paths below are relative to the base: **`/api/v0.2.3/eventresults`**.  
-Source: [Event Results Swagger](https://eventresults-api.speedhive.com/swagger/docs/v1)
+Two Speedhive host families use different path prefixes **and** pagination styles; the client handles both:
 
-| Method | Path | What it returns |
-| :-- | :-- | :-- |
-| **GET** | `/events` | **Global events** list with filters (`sport`, `sportCategory`, `count`, `offset`, `startDate`, `endDate`, `country`). Returns an **array of `EventDto`**. |
-| **GET** | `/events/{eventId}` | A single **event**; optional `sessions=true` to include a `SessionGroupingDto`. |
-| **GET** | `/events/{id}/sessions` | A **`SessionGroupingDto`** containing `groups` and `sessions`. |
-| **GET** | `/organizations/{id}` | **Organization** details. |
-| **GET** | `/organizations/{id}/events` | A list of **events for the organization** (`count`, `offset`, optional `sportCategory`). |
-| **GET** | `/sessions/{id}/announcements` | **Run announcements** (`RunAnnouncementsDto` with `rows[timestamp,text]`). |
-| **GET** | `/sessions/{id}/classification` | **Classification** rows for a session. |
-| **GET** | `/sessions/{id}/lapchart` | **Lap chart** for a session. |
+- **`organizations` family** (default base URL):
+  - Path prefix: `organizations`
+  - Pagination: `offset` / `count` (numeric offset + page size)
+  - Methods here use the client's internal `offset` paginator.
 
-> Response types like `EventDto`, `SessionGroupingDto`, `RunAnnouncementsDto`, and the presence of `rows` within announcements are defined in Swagger.
+- **`orgs` family** (`api.speedhive.com`):
+  - Path prefix: `orgs`
+  - Pagination: `page` / `per_page` (page number + page size) and a top-level `totalPages` value.
+  - Methods here use the client's internal `page` paginator and iterate pages until `totalPages`.
 
-> **Note:** There is **no `/events/{eventId}/results`** endpoint in the Swagger. Pull per‑event data via `events/{eventId}?sessions=true` plus session endpoints (classification, lapchart, announcements).
+You don’t need to choose this manually—**the client auto-selects** based on the `base_url` hostname.
 
 ---
 
-## Python Examples
+## Endpoint Reference & Usage
 
-> The site pages below are just illustrative examples of Waterford Hills sessions found in Speedhive; your client consumes the API endpoints above.  
-> Examples: [Session 6764536](https://speedhive.mylaps.com/sessions/6764536), [Session 9234119](https://speedhive.mylaps.com/sessions/9234119), [Session 11334071](https://speedhive.mylaps.com/sessions/11334071)
+Below are the implemented endpoints and their corresponding client methods. Paths shown are **relative** to `base_url`.
 
-### Get an organization
+### Organizations
+
+#### Get an organization
+- **Method**: `get_organization(org_id: int) -> Organization`
+- **Endpoint**: `/{orgs_prefix}/{org_id}`
+  - `orgs_prefix` is either `organizations` or `orgs` depending on `base_url`.
+- **Returns**: An `Organization` model built from the API payload.
+
+#### List an organization’s events
+- **Method**: `list_organization_events(org_id: int, *, per_page=None, page=None, count=None, offset=None, auto_paginate=False) -> List[EventResult]`
+- **Endpoints**:
+  - `/{orgs_prefix}/{org_id}/events`
+- **Pagination behavior**:
+  - For `orgs` family: uses `page`/`per_page` and **fetches all pages** (up to `totalPages`) even when `auto_paginate=False`.
+  - For `organizations` family: if `auto_paginate=True`, iterates `offset`/`count` until exhausted; otherwise returns a single page using provided `count` and `offset`.
+- **Convenience (raw)**: `get_events_for_org(org_id, count=200, offset=0) -> List[Dict]` returns raw event dicts, honoring the active path family.
+
+### Event Results
+
+#### Get results for a specific event
+- **Method**: `get_event_results(event_id: int) -> EventResult`
+- **Endpoint**: `/events/{event_id}/results`
+- **Notes**:
+  - Handles variations in payload shape (`event`, `result`, `records`, `items`, `results`).
+  - Normalizes into a single `EventResult` model.
+
+### Track Records (By Organization)
+
+#### Get track records for an organization
+- **Method**: `get_track_records_by_org(org_id: int) -> List[TrackRecord]`
+- **Endpoint**: `/{orgs_prefix}/{org_id}/records`
+- **Notes**:
+  - Accepts different payload wrappers (`records`, `items`, list).
+  - Maps rows to `TrackRecord` with tolerant field picking.
+
+### Event Sessions & Announcements
+
+#### List sessions for an event (flattened)
+- **Method**: `get_sessions_for_event(event_id: int) -> List[Dict]`
+- **Endpoint**: `/events/{event_id}/sessions`
+- **Notes**:
+  - The API may return grouped structures (`groups` nesting). The client recursively flattens to a simple list of session dicts.
+
+#### Get announcements for a session
+- **Method**: `get_session_announcements(session_id: int) -> List[Dict]`
+- **Endpoint**: `/sessions/{session_id}/announcements`
+- **Notes**:
+  - Returns rows (`rows`), ensures each row has `sessionId`.
+  - If `text` is missing/blank, derives a textual representation using `get_announcement_text`.
+
+#### Walk all sessions & announcements for an org
+- **Method**: `get_all_session_announcements_for_org(org_id: int) -> List[Dict]`
+- **Process**:
+  1. List org events (using the correct pagination family).
+  2. For each event, list sessions.
+  3. For each session, fetch announcements.
+  4. Enrich rows with `eventId`, `eventName`, `sessionName`, `eventDate`, and `trackName`.
+
+### Global Events Feed
+
+#### List global events
+- **Method**: `list_global_events(*, sport="All", sport_category="Motorized", count=200, offset=0, auto_paginate=True, extra_params=None) -> List[EventResult]`
+- **Endpoint**: `/events`
+- **Query Parameters**:
+  - `sport`: defaults to `"All"`
+  - `sportCategory`: defaults to `"Motorized"`
+  - Any additional filters can be supplied via `extra_params` (merged into query string).
+- **Notes**:
+  - If `auto_paginate=True`, uses offset/count pagination until exhausted.
+
+#### Stream global events (low-RAM)
+- **Method**: `iter_global_events(*, sport="All", sport_category="Motorized", count=200, start_offset=0, extra_params=None) -> Iterator[Dict]`
+- **Endpoint**: `/events`
+- **Returns**: An iterator over raw event dicts.
+
+### Lap Data (Per Session & Position)
+
+#### Get lap data
+- **Method**: `get_session_lap_data(session_id: int, position: int = 1) -> List[Dict]`
+- **Endpoint**: `/sessions/{session_id}/lapdata/{position}/laps`
+- **Returns**: List of lap dictionaries (or empty list if none / unexpected payload).
+
+#### Stream lap data
+- **Method**: `iter_session_lap_data(session_id: int, position: int = 1) -> Iterator[Dict]`
+- **Endpoint**: `/sessions/{session_id}/lapdata/{position}/laps`
+
+#### Export lap data to NDJSON
+- **Method**: `export_session_lapdata_to_ndjson(session_id: int, position: int, out_path: Union[str, Path]) -> int`
+- **Writes**: One JSON object per line at `out_path`, returning the number of rows written.
+
+---
+
+## Announcement Parsing → TrackRecord
+
+The client includes robust parsing to turn announcement text into `TrackRecord` objects:
+
+- Detects “New Track Record” / “New Class Record” variants and ignores negations like “unofficial”, “not counted”, etc.
+- Supports multiple textual patterns, including:
+  - `New (MM:SS.mmm) for CLASS by DRIVER in MARQUE`  
+  - `New (MM:SS.mmm) for CLASS by DRIVER`  
+  - Separator-based announcements: `CLASS • TIME • DRIVER • (MARQUE) • DATE`  
+  - Fallback anchored on lap time with heuristic extraction of class, driver, marque, and date.
+- Validation via `is_record_valid(record)` ensures required fields are present (`lapTime`, `driverName`, `trackName`, `classAbbreviation`).
+
+> **CamelCase export normalization**: when exporting records in camelCase (`export_records_to_json_camel`), lap times are normalized to `M:SS.mmm`. If the `lap_time` field is a float (seconds), it is formatted accordingly.
+
+---
+
+## Export Helpers
+
+- `export_records_to_json(org_or_records, out_path) -> int`  
+  Writes `{ "records": [...] }` to `out_path` (snake_case field names). Returns count.
+
+- `export_records_to_csv(org_or_records, out_path) -> int`  
+  Writes CSV with headers: `driver_name, lap_time, track_name, date, vehicle, class_name`. Returns count.
+
+- `export_records_to_json_camel(org_or_records, out_path) -> int`  
+  Writes `{ "records": [...] }` with camelCase keys and **normalized** `lapTime`. Returns count.
+
+- `export_session_lapdata_to_ndjson(session_id, position, out_path) -> int`  
+  Writes lap rows (one per line) as NDJSON. Returns count.
+
+For all export methods, you may pass either an `org_id` (int) or a pre-fetched iterable of `TrackRecord` objects.
+
+---
+
+## Error Handling
+
+All HTTP and parsing issues raise `SpeedHiveAPIError(message, status=None, url=None)`. 
+
+- A `status >= 400` yields a detailed message with a preview of the response body.
+- Network failures (connection timeouts, DNS, etc.) are wrapped with URL context.
+- `204 No Content` results in `{}`.
+- Invalid JSON responses trigger `SpeedHiveAPIError("Invalid JSON response")`.
+
+---
+
+## Advanced Usage Examples
+
+### Stream Org Events & Save Announcements as Records
+
 ```python
-client = SpeedHiveClient()
-org = client.get_organization(30476)  # Waterford Hills example
-print(org.name, org.city, org.country)
+from speedhive_tools.client import SpeedHiveClient
+
+client = SpeedHiveClient(api_key="YOUR_API_KEY")
+rows = client.get_all_session_announcements_for_org(12345)
+
+parsed_records = []
+for row in rows:
+    rec = client.parse_track_record_announcement(row)
+    ok, reason = client.is_record_valid(rec)
+    if ok:
+        parsed_records.append(rec)
+
+client.export_records_to_json_camel(parsed_records, "out/parsed-records.json")
 ```
 
-### List events for an organization
+### Global Events Filtered by Sport Category
+
 ```python
-events = client.list_organization_events(30476, auto_paginate=True)
-for ev in events:
-    print(ev.event_name, ev.startDate)
+events = client.list_global_events(sport="Kart", sport_category="Motorized")
+for e in events:
+    print(e.name, e.id)
 ```
 
-### Get event details (+sessions)
+### Lap Data for P1 (Winner) in a Session
+
 ```python
-event = client.get_event(1234, include_sessions=True)  # sessions=true
-print(event.name, bool(event.sessions))
-```
-
-### Get sessions for an event
-```python
-sessions_grouping = client.get_sessions_for_event(1234)
-print([s.get("id") for s in (sessions_grouping.get("sessions") or [])])
-```
-
-### Get announcements for a session
-```python
-rows = client.get_session_announcements(9001)
-texts = [client.get_announcement_text(r) for r in rows]
-print(texts[:3])
-```
-
-### Walk org → events → sessions → announcements
-```python
-all_rows = client.get_all_session_announcements_for_org(30476)
-print(f"rows={len(all_rows)}")
-
-# Filter record-like announcements
-record_rows = [
-    r for r in all_rows
-    if client.find_track_record_announcements(client.get_announcement_text(r))
-]
-print(f"record-like rows={len(record_rows)}")
-
-# Parse into TrackRecord models (derived from announcements)
-records = []
-for r in record_rows:
-    tr = client.parse_track_record_announcement(r)  # text → TrackRecord
-    ok, reason = client.is_record_valid(tr)
-    if ok or (reason and "Missing classAbbreviation" in str(reason)):
-        records.append(tr)
-```
-
-### Records (derived from announcements)
-```python
-normalized = client.get_track_records_by_org(30476)
-for tr in normalized:
-    print(tr.driver_name, tr.lap_time, tr.class_name)
-```
-
-### Export JSON/CSV
-```python
-client.export_records_to_json(normalized, "records_snake.json")
-client.export_records_to_json_camel(normalized, "records_camel.json")
-client.export_records_to_csv(normalized, "records.csv")
+laps = client.get_session_lap_data(session_id=555555, position=1)
+print(f"Fetched {len(laps)} laps")
+client.export_session_lapdata_to_ndjson(555555, 1, "out/laps.ndjson")
 ```
 
 ---
 
-## Low‑RAM Streaming Dump
+## Notes & Compatibility
 
-A ready‑to‑use script streams the global feed, deduplicates org IDs, and iteratively dumps per‑org data (events → sessions → announcements → derived records) to **NDJSON/JSON**—keeping RAM usage tiny. It follows the API’s `/events` feed and org‑scoped endpoints above.  
-Source: [Event Results Swagger](https://eventresults-api.speedhive.com/swagger/docs/v1)
-
-```bash
-python dump_speedhive_database_streaming.py
-```
-
-- Appends NDJSON under `./dump/` and a small **SQLite index** `dump/index.sqlite` (tables: `orgs`, `progress`) to dedupe orgs & resume.  
-- Set `SPEEDHIVE_API_KEY` if your environment requires an API key for some endpoints.  
-- Example event/session pages for Waterford Hills are available on Speedhive for reference; your client uses API endpoints rather than HTML scraping.
-
-> Repo note: Current tree shows `speedhive_client.py` and `speedhive_example_runner.py`. Add the streaming dump script next to them or update docs accordingly.  
-> Source: [ncrosty58/speedhive-tools (repo index)](https://github.com/ncrosty58/speedhive-tools)
+- This client is tolerant of the API’s varying payload shapes and field names.
+- It centralizes retries and timeouts via one `requests.Session` instance.
+- When `rate_delay` is set, the client sleeps briefly between pagination batches, which can help avoid rate limits.
 
 ---
 
-## Headers, retries, and errors
+## Changelog (client additions)
 
-The client sends:
-```
-Accept: application/json
-User-Agent: speedhive-tools (+https://github.com/ncrosty58/speedhive-tools)
-Apikey: <your_api_key>  # only if provided
-```
-
-Many Event Results endpoints indicate `Apikey` security in Swagger; public reads generally work without a key, but you can pass one if your environment requires it.  
-Source: [Event Results Swagger](https://eventresults-api.speedhive.com/swagger/docs/v1)
-
-We use a pooled `requests.Session` with retry/backoff for GETs. JSON parse errors, HTTP ≥ 400, and network exceptions raise `SpeedHiveAPIError(message, status, url)`.
-
----
-
-## Notes
-
-- This README covers **Event Results** endpoints your client calls. Speedhive’s site/app surfaces that same Event Results platform for global event discovery and per‑event results.  
-Sources: [Speedhive site](https://speedhive.mylaps.com/), [MYLAPS Speedhive overview](https://mylaps.com/motorsports/services/speedhive/)
-- **Practice APIs** live under different bases (e.g., `https://practice-api.speedhive.com`) and are **not used** by this client. Swagger UIs are published separately.  
-Sources: [Practice Swagger UI](https://practice-api.speedhive.com/swagger/ui/index)
-- Response shapes vary:  
-  - `/events` → **array** of `EventDto`.  
-  - `/events/{id}/sessions` → **`SessionGroupingDto`** with `groups` & `sessions`.  
-  - `/sessions/{id}/announcements` → **`RunAnnouncementsDto`** with `rows`.  
-These are documented in Swagger and handled automatically by the client.  
-Source: [Event Results Swagger](https://eventresults-api.speedhive.com/swagger/docs/v1)
+- Added detection of host family (`orgs` vs `organizations`) and matching pagination helpers.
+- Implemented `get_sessions_for_event`, `get_session_announcements`, and `get_all_session_announcements_for_org`.
+- Added announcement parsing (regex heuristics) and `is_record_valid`.
+- Implemented global events feed: `iter_global_events`, `list_global_events`.
+- Added lap data endpoints: `get_session_lap_data`, `iter_session_lap_data`, `export_session_lapdata_to_ndjson`.
+- Added record export helpers with camelCase normalization of `lapTime`.
 
 ---
 
 ## License
-MIT (see `LICENSE`).
+
+MIT (see repository license).
+
