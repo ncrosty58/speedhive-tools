@@ -74,7 +74,7 @@ speedhive-tools/
 │  ├─ utils.py            # Lap time parsing, I/O helpers, text parsing
 ├─ examples/
 │  ├─ api_usage_demo.py   # Example usage of client + models
-├─ example_runner.py      # Quick CLI for common workflows
+├─ ├─ example_runner.py      # Quick CLI for common workflows
 ├─ tests/
 │  ├─ test_client.py      # Pytest with stubbed HTTP
 ├─ README.md
