@@ -1,146 +1,214 @@
-# 🚀 speedhive-tools
+# speedhive-tools
 
-Utilities and examples for interacting with the MyLaps / Event Results API using a locally-generated OpenAPI Python client.
+[![PyPI version](https://img.shields.io/pypi/v/speedhive-tools.svg)](https://pypi.org/project/speedhive-tools/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![CI](https://github.com/ncrosty58/speedhive-tools/actions/workflows/publish.yml/badge.svg)](https://github.com/ncrosty58/speedhive-tools/actions)
 
-This repository bundles a generated client (`mylaps_client/`) and a set of small, focused example scripts and processing helpers for exporting and post-processing event/session/lap data.
+Python toolkit for the [MyLaps Event Results API](https://api2.mylaps.com/v3/api-docs). Export race events, sessions, laps, and announcements to CSV, SQLite, or JSON with a single command.
 
----
+## Features
 
-## 📚 Table of Contents
+- **Full Data Export** — Stream events, sessions, laps, and announcements for any organization
+- **Multiple Output Formats** — CSV, SQLite, JSON, and compressed NDJSON
+- **Memory Efficient** — Streaming architecture handles large datasets without high RAM usage
+- **Resumable Downloads** — Checkpoint support for interrupted exports
+- **Interactive CLI** — Process exported data with guided prompts or batch flags
 
-- [Quick Start](#quick-start)
-- [What's in this repo](#whats-in-this-repo)
-- [Common Commands](#common-commands)
-- [Process Exported Data](#process-exported-data)
-- [Interactive Processor CLI](#interactive-processor-cli)
-- [Notes & Tips](#notes--tips)
-- [Regenerating the Client](#regenerating-the-client)
-- [Testing & CI](#testing--ci)
-- [Contributing & Next Steps](#contributing--next-steps)
+## Installation
 
----
-
-## 🚀 Quick Start
-
-Requirements: Python 3.10+ and a virtualenv.
+### From PyPI
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+pip install speedhive-tools
+```
+
+### From Source
+
+```bash
+git clone https://github.com/ncrosty58/speedhive-tools.git
+cd speedhive-tools
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Run examples from the repository root so the bundled `mylaps_client` is importable.
+## Quick Start
 
----
+### 1. Export Data
 
-## 📁 What's in this repo
-
-- `mylaps_client/` — generated OpenAPI Python client (importable as `event_results_client`).
-- `examples/` — small, focused example scripts (exporters, API usage).
-- `examples/processing/` — streaming NDJSON -> CSV/SQLite helpers and an interactive processor CLI.
-- `tests/` — unit tests for processing helpers.
-- `output/` — suggested location for exporter output (ignored by git).
-
----
-
-## 🛠️ Common Commands
-
-- List events for an org:
-
-```bash
-python examples/list_events_by_org.py 30476 --verbose
-```
-
-- Export announcements for an org (per-event JSON files):
-
-```bash
-python examples/export_announcements_by_org.py 30476 --output ./output/announcements --verbose
-```
-
-- Full dump (stream NDJSON, gzipped by default):
+Export all data for an organization (events, sessions, laps, announcements):
 
 ```bash
 python examples/export_full_dump.py --org 30476 --output ./output/full_dump --verbose
 ```
 
----
+### 2. Process to CSV
 
-## 📦 Process Exported Data
-
-- Extract laps to CSV:
+Convert the exported NDJSON to flat CSV files:
 
 ```bash
-python examples/processing/extract_laps_to_csv.py --input output/full_dump/30476 --out output/full_dump/30476/laps_flat.csv
+python examples/processing/extract_laps_to_csv.py \
+    --input output/full_dump/30476 \
+    --out output/full_dump/30476/laps.csv
 ```
 
-- Extract sessions to CSV:
-
-```bash
-python examples/processing/extract_sessions_to_csv.py --input output/full_dump/30476 --out output/full_dump/30476/sessions_flat.csv
-```
-
-- Extract announcements to CSV (also writes `announcements_summary.json`):
-
-```bash
-python examples/processing/extract_announcements_to_csv.py --input output/full_dump/30476 --out output/full_dump/30476/announcements_flat.csv
-```
-
-- Import laps to SQLite:
-
-```bash
-python examples/processing/ndjson_to_sqlite.py --input output/full_dump/30476/laps.ndjson.gz --out output/full_dump/30476/dump.db
-sqlite3 output/full_dump/30476/dump.db "SELECT COUNT(*) FROM laps;"
-```
-
----
-
-## 🧭 Interactive Processor CLI
-
-The processor CLI scans `output/full_dump/` and can run extractors for a chosen org interactively. Run:
+### 3. Or Use the Interactive CLI
 
 ```bash
 python examples/processing/processor_cli.py
-# or non-interactive for a specific org
+```
+
+## Usage
+
+### Export Commands
+
+| Command | Description |
+|---------|-------------|
+| `export_full_dump.py --org <id>` | Export all data (events, sessions, laps, announcements) |
+| `list_events_by_org.py <id>` | List events for an organization |
+| `export_announcements_by_org.py <id>` | Export announcements only |
+| `get_event_sessions.py <event_id>` | Get sessions for a specific event |
+| `get_session_laps.py <session_id>` | Get lap times for a session |
+| `get_session_results.py <session_id>` | Get results for a session |
+
+### Export Options
+
+```bash
+python examples/export_full_dump.py \
+    --org 30476 \
+    --output ./output/full_dump \
+    --max-events 10 \
+    --max-sessions-per-event 5 \
+    --concurrency 2 \
+    --verbose \
+    --dry-run
+```
+
+| Flag | Description |
+|------|-------------|
+| `--org` | Organization ID (required, repeatable) |
+| `--output` | Output directory (default: `./output/full_dump`) |
+| `--max-events` | Limit number of events to export |
+| `--max-sessions-per-event` | Limit sessions per event |
+| `--concurrency` | Parallel request limit (default: 5) |
+| `--token` | API token for authenticated endpoints |
+| `--dry-run` | Preview without writing files |
+| `--verbose` | Enable detailed logging |
+
+### Processing Commands
+
+Convert exported NDJSON to analysis-ready formats:
+
+```bash
+# Extract to CSV
+python examples/processing/extract_laps_to_csv.py --input <dir> --out laps.csv
+python examples/processing/extract_sessions_to_csv.py --input <dir> --out sessions.csv
+python examples/processing/extract_announcements_to_csv.py --input <dir> --out announcements.csv
+
+# Import to SQLite
+python examples/processing/ndjson_to_sqlite.py --input <dir>/laps.ndjson.gz --out dump.db
+```
+
+### Processor CLI
+
+Interactive mode for batch processing:
+
+```bash
+# Interactive - prompts for org and output options
+python examples/processing/processor_cli.py
+
+# Non-interactive - process all data types
 python examples/processing/processor_cli.py --org 30476 --run-all
 ```
 
-The CLI supports choosing output formats and which data types to process (laps, sessions, announcements).
+## Project Structure
 
----
-
-## 📝 Notes & Tips
-
-- Run examples from the repo root so local imports work.
-- Use `--token` for APIs that require authentication.
-- Exporter supports `--max-events`, `--max-sessions-per-event`, and `--dry-run` for testing.
-- Long exports create a checkpoint file (`outdir/.checkpoint.json`) so runs can resume after interruption.
-
----
-
-## 🔁 Regenerating the Client
-
-If the MyLaps API spec changes, regenerate the client and place it in `mylaps_client/`.
-
-Example with `openapi-python-client`:
-
-```bash
-python -m openapi_python_client generate --url https://api2.mylaps.com/v3/api-docs --output-path ./mylaps_client
+```
+speedhive-tools/
+├── mylaps_client/          # Generated OpenAPI client (event_results_client)
+├── examples/
+│   ├── export_full_dump.py          # Main exporter
+│   ├── list_events_by_org.py        # List org events
+│   ├── export_announcements_by_org.py
+│   ├── get_event_sessions.py
+│   ├── get_session_laps.py
+│   ├── get_session_results.py
+│   └── processing/
+│       ├── processor_cli.py         # Interactive processor
+│       ├── extract_laps_to_csv.py
+│       ├── extract_sessions_to_csv.py
+│       ├── extract_announcements_to_csv.py
+│       └── ndjson_to_sqlite.py
+├── tests/                  # Unit tests
+└── output/                 # Default export location (gitignored)
 ```
 
----
+## Output Format
 
-## ✅ Testing & CI
+The exporter creates gzipped NDJSON files:
 
-- Unit tests are under `tests/` and validate the streaming extractors.
-- I can add a GitHub Actions workflow to run tests and publish on tag; let me know if you'd like that.
+```
+output/full_dump/<org_id>/
+├── events.ndjson.gz
+├── sessions.ndjson.gz
+├── laps.ndjson.gz
+├── announcements.ndjson.gz
+└── .checkpoint.json        # Resume state
+```
 
----
+## Development
 
-## 🤝 Contributing & Next Steps
+### Run Tests
 
-If you'd like, I can:
+```bash
+pip install pytest
+pytest
+```
 
-- Harden the exporter (retries/backoff, schema checks).
-- Improve SQLite schema and indexing for analysis workloads.
-- Add CI workflow to run tests and publish releases automatically.
+### Regenerate API Client
+
+If the MyLaps API spec changes:
+
+```bash
+pip install openapi-python-client
+openapi-python-client generate --url https://api2.mylaps.com/v3/api-docs --output-path ./mylaps_client
+```
+
+### Build Distribution
+
+```bash
+pip install build
+python -m build
+```
+
+## CI/CD
+
+This project uses GitHub Actions for automated testing and PyPI publishing. Pushing a version tag triggers:
+
+1. Run test suite
+2. Build sdist and wheel
+3. Publish to PyPI
+
+```bash
+git tag v0.1.3
+git push origin v0.1.3
+```
+
+## Contributing
+
+Contributions welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Submit a pull request
+
+## License
+
+[MIT](LICENSE) © Nathan Crosty
+
+## Links
+
+- [PyPI Package](https://pypi.org/project/speedhive-tools/)
+- [MyLaps API Documentation](https://api2.mylaps.com/v3/api-docs)
+- [GitHub Repository](https://github.com/ncrosty58/speedhive-tools)
