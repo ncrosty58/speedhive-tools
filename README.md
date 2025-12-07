@@ -30,10 +30,14 @@ Small, practical tools for the MyLaps / Event Results API using a locally-genera
 Quick overview
 - Generated client: `mylaps_client/` (importable as `event_results_client` when running examples from the repo root).
 - Examples live in `examples/` and are runnable without installing the client.
+# speedhive-tools
+
+Small tools and examples for the MyLaps Event Results API.
 
 Quick start
-- Python 3.10+
-- Create a venv and install dependencies:
+
+- Requirements: Python 3.10+
+- Install:
 
 ```bash
 python -m venv .venv
@@ -41,175 +45,69 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Common examples (run from repo root)
-- List events for an org (id or name):
+Usage examples (run from repo root)
 
-```bash
-python examples/list_events_by_org.py 30476 --verbose
-```
-
-- Export announcements (one JSON per event):
-
-```bash
-python examples/export_announcements_by_org.py 30476 --output ./announcements --verbose
-```
-
-- Export with more concurrency (monitor API limits):
-
-```bash
-python examples/export_announcements_by_org.py 30476 --output ./announcements --concurrency 40 --verbose
-```
-
-- Get sessions for an event:
-
-```bash
-python examples/get_event_sessions.py 123456 --verbose
-```
-
-- Get lap rows for a session:
-
-```bash
-python examples/get_session_laps.py 789012 --output session_789012_laps.json --verbose
-```
-
-- Get session classification/results:
-
-```bash
-python examples/get_session_results.py 9751807 --output session_9751807_results.json --verbose
-```
-
-Exporter details (short)
-- Script: `examples/export_announcements_by_org.py`
-- Writes: `event_<event_id>_announcements.json` for events that have announcements.
-- Concurrency: defaults to 20, adjustable with `--concurrency N`.
-
-CLI flags (common)
-- `--token` — API token for authenticated endpoints.
-- `--verbose` — print debug info and response sizes.
-- `--concurrency N` — set max concurrent requests for exporter.
-
-Notes & troubleshooting
-- If no events are returned: run `python examples/list_events_by_org.py ORG_ID --verbose` to inspect raw responses.
-- If parsing fails: re-run with `--verbose` and share the raw payload to help extend sanitization.
-- If you hit rate limits: lower `--concurrency` and consider adding retries/backoff.
-
-Regenerating the client
-- If the OpenAPI spec changes, regenerate with `openapi-python-client` and drop the new `mylaps_client/` into the repo root:
-
-```bash
-python -m openapi_python_client generate --url https://api2.mylaps.com/v3/api-docs --output-path ./mylaps_client
-```
-
-Testing
-- Minimal tests are in `tests/` (checks examples contain a `main` function). Run:
-
-```bash
-pytest -q tests/test_examples_imports.py
-```
-
-If you want CI-friendly tests for networked examples, I can add recorded fixtures and mocks.
-
----
-Basic README
-
-This project contains a generated OpenAPI client and small example scripts.
-
-Requirements
-- Python 3.10+
-
-Quick start
-1. Create and activate a virtualenv:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-Run examples (from repo root)
-
-- List events by organization id:
+- List events by org id:
 
 ```bash
 python examples/list_events_by_org.py 30476
 ```
 
-- Export announcements for an org (writes to `output/announcements` by default):
+- Export announcements (writes to `output/announcements` by default):
 
 ```bash
 python examples/export_announcements_by_org.py 30476 --output ./output/announcements --verbose
 ```
 
-- Get session classification/results (writes to `output/` by default):
+- Get session results:
 
 ```bash
 python examples/get_session_results.py 9751807 --verbose
 ```
 
 Notes
-- Example output files default to `output/` and that directory is ignored by git.
-- Use `--token` when a private API token is required.
-- Use `--concurrency N` with the exporter to tune parallelism.
 
-Tests
-- Minimal checks live in `tests/`.
+- Example outputs default to the `output/` directory (ignored by git).
+- Use `--token` for authenticated requests and `--concurrency N` to tune exporter parallelism.
 
-Suggested commit message
+Client usage (one line)
 
-```
-docs: replace README with a short, basic README
-```
-- Announcement responses vary between a dict (`{"rows": [...]}`) and a raw list. The exporter attempts to normalize using the generated `RunAnnouncements` model where appropriate and falls back to raw JSON when necessary.
+- Import and construct the client: `from event_results_client import AuthenticatedClient; client = AuthenticatedClient(base_url="https://api2.mylaps.com", token="YOUR_TOKEN")`
 
-Troubleshooting
+More examples
 
-- If no events are returned for a known org id: run `python examples/list_events_by_org.py ORG_ID --verbose` to inspect raw responses.
-- If parsing fails: re-run with `--verbose` to capture response sizes and raw payloads; share the raw payload if you'd like me to add sanitizer logic.
-- If you receive HTTP 429 or rate-limit errors: lower `--concurrency` and add backoff/retries in code.
-
-Regenerating the client
-
-If the OpenAPI spec changes, regenerate the client and drop the `mylaps_client/` package into the repo root. Example using `openapi-python-client`:
+- List events by org name (partial):
 
 ```bash
-python -m openapi_python_client generate --url https://api2.mylaps.com/v3/api-docs --output-path ./mylaps_client
+python examples/list_events_by_org.py "Waterford Hills" --partial --verbose
 ```
 
-After regenerating, run the examples to validate and adjust sanitization where payload shapes differ.
+- Export with higher concurrency (faster; watch rate limits):
+
+```bash
+python examples/export_announcements_by_org.py 30476 --output ./output/announcements --concurrency 40 --verbose
+```
+
+- Fetch all sessions for an event (prints by default):
+
+```bash
+python examples/get_event_sessions.py 123456 --verbose
+```
+
+- Fetch lap rows for a session (writes to `output/` by default):
+
+```bash
+python examples/get_session_laps.py 789012 --verbose
+```
 
 Testing
 
-- There is a minimal test under `tests/test_examples_imports.py` that verifies example files contain a `main` function. Run it with:
+- Minimal checks are in `tests/` — run with:
 
 ```bash
 pytest -q tests/test_examples_imports.py
 ```
 
-If you want tests that exercise network calls, I recommend recording fixtures (responses) and mocking the generated client's controllers so CI can run deterministically.
-
-Suggested commit message
-
-```
-docs: replace duplicated README with clean examples-first README
-
-- document new examples: get_event_sessions, get_session_laps
-- document exporter `--concurrency` flag and usage
-- include quick-start, troubleshooting, and test notes
-```
-
-If you'd like, I can also:
-
-- Add CI (GitHub Actions) to run the minimal tests and linting.
-- Add recommended default concurrency values and a short note about safe ranges.
-- Add example output samples captured from a recent run (sanitized).
-
-Questions? Which follow-up would you like me to do next?
-
-Quick links
-
-- `mylaps_client/` — the generated OpenAPI client package (importable as `event_results_client` when running examples from the repo root).
-- `examples/list_events_by_org.py` — list events for an organization (by name or numeric id).
-- `examples/export_announcements_by_org.py` — async exporter that writes one combined JSON file per event containing only sessions that have announcements.
 - `mylaps_client_wrapper.py` — tiny helper that constructs `Client` / `AuthenticatedClient`.
 - `requirements.txt` — dependencies used by the generated client and examples.
 
