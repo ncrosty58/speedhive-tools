@@ -109,16 +109,56 @@ pytest -q tests/test_examples_imports.py
 
 If you want CI-friendly tests for networked examples, I can add recorded fixtures and mocks.
 
+---
+Basic README
+
+This project contains a generated OpenAPI client and small example scripts.
+
+Requirements
+- Python 3.10+
+
+Quick start
+1. Create and activate a virtualenv:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Run examples (from repo root)
+
+- List events by organization id:
+
+```bash
+python examples/list_events_by_org.py 30476
+```
+
+- Export announcements for an org (writes to `output/announcements` by default):
+
+```bash
+python examples/export_announcements_by_org.py 30476 --output ./output/announcements --verbose
+```
+
+- Get session classification/results (writes to `output/` by default):
+
+```bash
+python examples/get_session_results.py 9751807 --verbose
+```
+
+Notes
+- Example output files default to `output/` and that directory is ignored by git.
+- Use `--token` when a private API token is required.
+- Use `--concurrency N` with the exporter to tune parallelism.
+
+Tests
+- Minimal checks live in `tests/`.
+
 Suggested commit message
 
 ```
-docs: simplify README into concise, examples-first layout
+docs: replace README with a short, basic README
 ```
-
-If you'd like any of the following, tell me and I'll implement it:
-- Add CI (GitHub Actions) to run tests and linting.
-- Add recorded fixtures and mocked tests for the exporter.
-- Add brief guidance on safe concurrency ranges for typical network conditions.
 - Announcement responses vary between a dict (`{"rows": [...]}`) and a raw list. The exporter attempts to normalize using the generated `RunAnnouncements` model where appropriate and falls back to raw JSON when necessary.
 
 Troubleshooting
