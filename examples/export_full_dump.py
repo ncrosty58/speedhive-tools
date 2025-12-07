@@ -30,10 +30,30 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "mylaps_client"))
 
 from event_results_client import Client, AuthenticatedClient
-from event_results_client.api.organization_controller.get_event_list import asyncio_detailed as get_events_for_org_async
-from event_results_client.api.event_controller.get_session_list import asyncio_detailed as get_sessions_for_event_async
-from event_results_client.api.session_controller.get_announcements import asyncio_detailed as get_announcements_for_session_async
-from event_results_client.api.session_controller.get_lap_rows import asyncio_detailed as get_lap_rows_async
+
+# Some generated client versions may not expose every endpoint path we try to use.
+# Import endpoint callables in try/except blocks so the module can be imported
+# even if a particular generated function is missing. At runtime we check and
+# provide a clear error message if a required endpoint is not available.
+try:
+    from event_results_client.api.organization_controller.get_event_list import asyncio_detailed as get_events_for_org_async
+except Exception:
+    get_events_for_org_async = None
+
+try:
+    from event_results_client.api.event_controller.get_session_list import asyncio_detailed as get_sessions_for_event_async
+except Exception:
+    get_sessions_for_event_async = None
+
+try:
+    from event_results_client.api.session_controller.get_announcements import asyncio_detailed as get_announcements_for_session_async
+except Exception:
+    get_announcements_for_session_async = None
+
+try:
+    from event_results_client.api.session_controller.get_lap_rows import asyncio_detailed as get_lap_rows_async
+except Exception:
+    get_lap_rows_async = None
 
 
 def build_client(token: Optional[str] = None) -> Client:
@@ -71,6 +91,22 @@ def ndjson_writer(path: Path, compress: bool = True):
 
 async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool = False, concurrency: int = 3, compress: bool = True) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Check availability of endpoint helper callables and decide what we can do.
+    HAVE_EVENTS = callable(get_events_for_org_async)
+    HAVE_SESSIONS = callable(get_sessions_for_event_async)
+    HAVE_ANNOUNCEMENTS = callable(get_announcements_for_session_async)
+    HAVE_LAP_ROWS = callable(get_lap_rows_async)
+
+    if not HAVE_EVENTS:
+        raise RuntimeError("Required endpoint function `get_events_for_org_async` is not available in the generated client. Regenerate the client or add the missing endpoint.")
+    if not HAVE_SESSIONS:
+        raise RuntimeError("Required endpoint function `get_sessions_for_event_async` is not available in the generated client. Regenerate the client or add the missing endpoint.")
+
+    if not HAVE_ANNOUNCEMENTS and verbose:
+        print("[WARN] announcements endpoint missing in generated client; exporter will skip announcements")
+    if not HAVE_LAP_ROWS and verbose:
+        print("[WARN] lap rows endpoint missing in generated client; exporter will skip lap rows")
 
     events_resp = await get_events_for_org_async(org_id, client=client)
     if verbose:
@@ -115,25 +151,34 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
             sid = sdict.get("id")
             if not sid:
                 return
-            # announcements
-            async with sem:
-                aresp = await get_announcements_for_session_async(sid, client=client)
-            a_payload = safe_load_json(getattr(aresp, "content", None))
-            if a_payload:
-                anns_write({**base_event, "session_id": sid, "announcements": a_payload})
+            # announcements (optional)
+            if HAVE_ANNOUNCEMENTS:
+                async with sem:
+                    aresp = await get_announcements_for_session_async(sid, client=client)
+                a_payload = safe_load_json(getattr(aresp, "content", None))
+                if a_payload:
+                    anns_write({**base_event, "session_id": sid, "announcements": a_payload})
+            else:
+                if verbose:
+                    print(f"[DEBUG] skipping announcements for session {sid} (endpoint missing)")
 
             # lap rows
-            async with sem:
-                lresp = await get_lap_rows_async(sid, client=client)
-            l_payload = safe_load_json(getattr(lresp, "content", None))
-            if l_payload:
-                # normalize rows if wrapped
-                rows = []
-                if isinstance(l_payload, dict) and isinstance(l_payload.get("rows"), list):
-                    rows = l_payload.get("rows", [])
-                elif isinstance(l_payload, list):
-                    rows = l_payload
-                laps_write({**base_event, "session_id": sid, "rows_count": len(rows), "rows": rows})
+            # lap rows (optional)
+            if HAVE_LAP_ROWS:
+                async with sem:
+                    lresp = await get_lap_rows_async(sid, client=client)
+                l_payload = safe_load_json(getattr(lresp, "content", None))
+                if l_payload:
+                    # normalize rows if wrapped
+                    rows = []
+                    if isinstance(l_payload, dict) and isinstance(l_payload.get("rows"), list):
+                        rows = l_payload.get("rows", [])
+                    elif isinstance(l_payload, list):
+                        rows = l_payload
+                    laps_write({**base_event, "session_id": sid, "rows_count": len(rows), "rows": rows})
+            else:
+                if verbose:
+                    print(f"[DEBUG] skipping lap rows for session {sid} (endpoint missing)")
 
         # Fetch session details sequentially to limit memory/parallel in low-RAM systems
         for s in raw_sessions:
