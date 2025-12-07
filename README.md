@@ -18,30 +18,26 @@ Quick start
 Requirements
 - Python 3.10+
 - `pip install -r requirements.txt`
-
-Create and activate a virtualenv, then install:
-
-```bash
-python -m venv .venv
 # speedhive-tools
 
-Small, practical tools for the MyLaps / Event Results API using a locally-generated OpenAPI Python client.
+Utilities and examples for interacting with the MyLaps / Event Results API using a locally-generated OpenAPI Python client.
 
-Quick overview
-- Generated client: `mylaps_client/` (importable as `event_results_client` when running examples from the repo root).
-- Examples live in `examples/` and are runnable without installing the client.
-# 🚀 speedhive-tools
+This repo includes a generated client and example scripts for exporting and processing event/session/lap data.
 
-Small, playful utilities for the MyLaps Event Results API — examples included ✨
+## Table of contents
 
-Why this repo
----------------------------------
-- A locally-generated OpenAPI client lives in `mylaps_client/`.
-- Example scripts show common tasks (list events, export announcements, fetch laps/results).
+- [Quick Start](#quick-start)
+- [What’s in this repo](#whats-in-this-repo)
+- [Common commands](#common-commands)
+- [Process exported data](#process-exported-data)
+- [Notes & tips](#notes--tips)
+- [Regenerating the client](#regenerating-the-client)
+- [Testing and CI](#testing-and-ci)
+- [Contributing and next steps](#contributing-and-next-steps)
 
-Quick start — get running ⚡
----------------------------------
-Requirements: Python 3.10+
+## Quick Start
+
+Requirements: Python 3.10+ and a virtualenv.
 
 ```bash
 python -m venv .venv
@@ -49,101 +45,105 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Client usage (one-line) 🧩
----------------------------------
-Import and construct a client:
+## What’s in this repo
 
-```python
-from event_results_client import AuthenticatedClient
-client = AuthenticatedClient(base_url="https://api2.mylaps.com", token="YOUR_TOKEN")
-
-Regenerating the client
-
-If the OpenAPI spec changes you can regenerate the client and drop it into `mylaps_client/`.
-
-<!-- Lightweight README for speedhive-tools -->
-# speedhive-tools
-
-Small utilities to interact with the MyLaps Event Results API using a locally-generated OpenAPI client.
-
-**Quick Start**
-- Requirements: Python 3.10+ and a virtualenv.
-- Install:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-**What’s in this repo**
 - `mylaps_client/` — generated OpenAPI Python client (importable as `event_results_client` when running examples from the repo root).
-- `examples/` — short, runnable examples that demonstrate common API tasks.
-- `examples/processing/` — small data-processing helpers (convert NDJSON -> CSV/SQLite).
+- `examples/` — runnable examples that demonstrate common API tasks.
+- `examples/processing/` — data-processing helpers (convert NDJSON -> CSV/SQLite) and an interactive CLI.
 - `output/` — suggested place for example outputs (this directory is in `.gitignore`).
 
-**Common commands**
+## Common commands
+
 - List events for an org:
-  ```bash
-  python examples/list_events_by_org.py 30476 --verbose
-  ```
+
+```bash
+python examples/list_events_by_org.py 30476 --verbose
+```
+
 - Export announcements for an org (per-event JSON files):
-  ```bash
-  python examples/export_announcements_by_org.py 30476 --output ./output/announcements --verbose
-  ```
+
+```bash
+python examples/export_announcements_by_org.py 30476 --output ./output/announcements --verbose
+```
+
 - Full dump (stream NDJSON, gzipped by default):
-  ```bash
-  python examples/export_full_dump.py --org 30476 --output ./output/full_dump --verbose
-  ```
 
-**Process exported data**
+```bash
+python examples/export_full_dump.py --org 30476 --output ./output/full_dump --verbose
+```
+
+## Process exported data
+
 - Extract laps to CSV:
-  ```bash
-  python examples/processing/extract_laps_to_csv.py --input output/full_dump/30476 --out output/full_dump/30476/laps_flat.csv
-  ```
-- Import laps to SQLite:
-  ```bash
-  python examples/processing/ndjson_to_sqlite.py --input output/full_dump/30476/laps.ndjson.gz --out output/full_dump/30476/dump.db
-  sqlite3 output/full_dump/30476/dump.db "SELECT COUNT(*) FROM laps;"
-  ```
 
-**Notes & tips**
+```bash
+python examples/processing/extract_laps_to_csv.py --input output/full_dump/30476 --out output/full_dump/30476/laps_flat.csv
+```
+
+- Extract sessions to CSV:
+
+```bash
+python examples/processing/extract_sessions_to_csv.py --input output/full_dump/30476 --out output/full_dump/30476/sessions_flat.csv
+```
+
+- Extract announcements to CSV:
+
+```bash
+python examples/processing/extract_announcements_to_csv.py --input output/full_dump/30476 --out output/full_dump/30476/announcements_flat.csv
+```
+
+- Import laps to SQLite:
+
+```bash
+python examples/processing/ndjson_to_sqlite.py --input output/full_dump/30476/laps.ndjson.gz --out output/full_dump/30476/dump.db
+sqlite3 output/full_dump/30476/dump.db "SELECT COUNT(*) FROM laps;"
+```
+
+- Interactive processor CLI (scan `output/full_dump/` and run steps):
+
+```bash
+python examples/processing/processor_cli.py
+# or non-interactive for a specific org
+python examples/processing/processor_cli.py --org 30476 --run-all
+```
+
+## Notes & tips
+
 - Run examples from the repository root so the local `mylaps_client` package is on `sys.path`.
 - Use `--token` on example CLIs when endpoints require authentication.
 - The exporter supports `--max-events`, `--max-sessions-per-event`, and `--dry-run` for low-memory testing.
 - Long runs write a checkpoint file (`outdir/.checkpoint.json`) so you can resume after interruptions.
 
-**Regenerating the client**
+## Regenerating the client
+
 If the API OpenAPI spec changes, regenerate the client and place it under `mylaps_client/`.
 
 Example using `openapi-python-client`:
-```bash
-python -m openapi_python_client generate --url https://api2.mylaps.com/v3/api-docs --output-path ./mylaps_client
-```
-
-**Need help or next steps?**
-- I can add CI tests with recorded fixtures, retries and backoff for the exporter, or more processing utilities (aggregation, progress summaries). Tell me which and I’ll implement it.
-
-High-level steps (example using `openapi-python-client`):
 
 ```bash
 python -m openapi_python_client generate --url https://api2.mylaps.com/v3/api-docs --output-path ./mylaps_client
 ```
 
-After regenerating, run the examples to validate and adjust any sanitization logic if payload shapes changed.
+## Testing and CI
 
-Testing and CI
+- There are minimal tests under `tests/` (including processing extractor tests). Add CI and recorded fixtures if you want reproducible runs in CI.
 
-- There is a minimal import test under `tests/` to ensure the generated package imports correctly. Add unit tests or mocks if you want to run the exporter in CI.
+## Contributing and next steps
 
-Contributing and next steps
+If you'd like I can implement any of the following:
 
-If you'd like I can implement any of the following (pick one or more):
+- Add retries/backoff to the exporter and recorded fixtures for CI.
+- Add extra extractors (results/classifications) or tune CSV columns.
+- Add a GitHub Actions workflow to build and publish to PyPI on tag.
 
+---
+
+If you'd like me to change the TOC style (e.g. a shorter TOC or grouped sections), tell me which layout you prefer and I'll update it.
 - Add a `--concurrency` CLI flag to control parallelism.
-- Add an `--aggregate` flag to emit a single combined file for all events instead of per-event files.
-- Add a unit test that verifies exporter output using recorded fixtures (recommended for CI).
 
+- Add an `--aggregate` flag to emit a single combined file for all events instead of per-event files.
+
+- Add a unit test that verifies exporter output using recorded fixtures (recommended for CI).
 
 
 
