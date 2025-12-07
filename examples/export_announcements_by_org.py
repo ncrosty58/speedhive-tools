@@ -161,6 +161,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--output", "-o", default="./output_announcements", help="Output directory")
     parser.add_argument("--token", help="API token for authenticated endpoints", default=None)
     parser.add_argument("--verbose", action="store_true", help="Verbose debug output")
+    parser.add_argument("--concurrency", "-c", type=int, default=20, help="Maximum concurrent requests")
     args = parser.parse_args(argv)
 
     client = build_client(token=args.token)
@@ -168,7 +169,13 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     async def _run():
         async with client:
-            await export_announcements_for_org_async(args.org_id, out_dir, client=client, verbose=args.verbose)
+            await export_announcements_for_org_async(
+                args.org_id,
+                out_dir,
+                client=client,
+                verbose=args.verbose,
+                concurrency=args.concurrency,
+            )
 
     asyncio.run(_run())
     return 0
