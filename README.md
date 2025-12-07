@@ -27,6 +27,35 @@ Key features
 - Python 3.10+ (the generated client targets modern Python).
 - Install dependencies listed in `requirements.txt` (recommended in a virtualenv).
 
+# speedhive-tools
+
+Tools and examples for working with the MyLaps / Event Results API using a locally-generated OpenAPI Python client.
+
+This repository contains a generated Python client (under `mylaps_client`), a small wrapper, and example scripts that demonstrate how to list events and export session announcements for an organization.
+
+**Contents**
+
+- `mylaps_client/` – generated OpenAPI Python client (importable as `event_results_client` when `mylaps_client` is on `sys.path`).
+- `examples/` – runnable example scripts:
+  - `list_events_by_org.py` — list events for an organization (by name or numeric id).
+  - `export_announcements_by_org.py` — async exporter that writes one combined JSON per event containing only sessions that have announcements.
+- `mylaps_client_wrapper.py` – small helper for creating `Client`/`AuthenticatedClient` instances.
+- `requirements.txt` – runtime dependencies required by the generated client and examples.
+
+## Project Overview
+
+The goal of these tools is to make it easy to programmatically access event/session/announcement data from the Event Results API (MyLaps). The repository keeps the generated client local so examples can run without installing a package globally.
+
+Key features
+- Generated OpenAPI client for typed API access (`event_results_client`).
+- Example scripts that are resilient to API payload shape differences (e.g. `sessions` sometimes nested in `groups` or present as `null`).
+- Async exporter (`export_announcements_by_org.py`) that fetches session announcements concurrently and writes one JSON-per-event with only sessions that contain announcements.
+
+## Requirements
+
+- Python 3.10+ (the generated client targets modern Python).
+- Install dependencies listed in `requirements.txt` (recommended in a virtualenv).
+
 Install (example):
 
 ```bash
@@ -97,22 +126,6 @@ Troubleshooting & notes
 Development & contributing
 - If you regenerate the client (e.g. the OpenAPI spec changes), put the new generated package under `mylaps_client/` and verify the examples still run.
 - Tests: there is a minimal import test under `tests/` — run your test runner to validate imports.
-
-Suggested commit message (for GitHub)
-
-```
-docs: add README with usage, examples, and exporter details
-
-Adds a robust README.md documenting how to use the generated MyLaps client, example scripts
-(`list_events_by_org.py`, `export_announcements_by_org.py`), output formats, authentication, and
-performance/concurrency notes.
-```
-
-If you want I can also:
-- add a `--concurrency` CLI argument to the exporter,
-- aggregate all events into a single top-level file instead of per-event files,
-- add a small test that verifies the exporter creates at least one event file for a given org (mocked), or
-- add a short `CONTRIBUTING.md`.
 
 ---
 If you want any changes to the README wording or additional examples, tell me what to include and I'll update it.
