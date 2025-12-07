@@ -30,14 +30,18 @@ Small, practical tools for the MyLaps / Event Results API using a locally-genera
 Quick overview
 - Generated client: `mylaps_client/` (importable as `event_results_client` when running examples from the repo root).
 - Examples live in `examples/` and are runnable without installing the client.
-# speedhive-tools
+# 🚀 speedhive-tools
 
-Small tools and examples for the MyLaps Event Results API.
+Small, playful utilities for the MyLaps Event Results API — examples included ✨
 
-Quick start
+Why this repo
+---------------------------------
+- A locally-generated OpenAPI client lives in `mylaps_client/`.
+- Example scripts show common tasks (list events, export announcements, fetch laps/results).
 
-- Requirements: Python 3.10+
-- Install:
+Quick start — get running ⚡
+---------------------------------
+Requirements: Python 3.10+
 
 ```bash
 python -m venv .venv
@@ -45,8 +49,17 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Usage examples (run from repo root)
+Client usage (one-line) 🧩
+---------------------------------
+Import and construct a client:
 
+```python
+from event_results_client import AuthenticatedClient
+client = AuthenticatedClient(base_url="https://api2.mylaps.com", token="YOUR_TOKEN")
+```
+
+Quick examples (run from repo root) 🧰
+---------------------------------
 - List events by org id:
 
 ```bash
@@ -59,54 +72,49 @@ python examples/list_events_by_org.py 30476
 python examples/export_announcements_by_org.py 30476 --output ./output/announcements --verbose
 ```
 
-- Get session results:
+- Get session results (summary + raw):
 
 ```bash
 python examples/get_session_results.py 9751807 --verbose
 ```
 
-Notes
-
-- Example outputs default to the `output/` directory (ignored by git).
-- Use `--token` for authenticated requests and `--concurrency N` to tune exporter parallelism.
-
-Client usage (one line)
-
-- Import and construct the client: `from event_results_client import AuthenticatedClient; client = AuthenticatedClient(base_url="https://api2.mylaps.com", token="YOUR_TOKEN")`
-
-More examples
-
-- List events by org name (partial):
+Extra examples ✨
+---------------------------------
+- List events by name (partial match):
 
 ```bash
 python examples/list_events_by_org.py "Waterford Hills" --partial --verbose
 ```
 
-- Export with higher concurrency (faster; watch rate limits):
+- Export with more concurrency (be nice to the API):
 
 ```bash
-python examples/export_announcements_by_org.py 30476 --output ./output/announcements --concurrency 40 --verbose
+python examples/export_announcements_by_org.py 30476 --concurrency 40 --verbose
 ```
 
-- Fetch all sessions for an event (prints by default):
+- Print sessions for an event (or write with `--output`):
 
 ```bash
 python examples/get_event_sessions.py 123456 --verbose
 ```
 
-- Fetch lap rows for a session (writes to `output/` by default):
+Notes & tips 📝
+---------------------------------
+- Example outputs default to `output/` (this folder is in `.gitignore`).
+- Use `--token` when endpoints require authentication.
+- Lower `--concurrency` if you see rate limits.
 
-```bash
-python examples/get_session_laps.py 789012 --verbose
-```
-
-Testing
-
-- Minimal checks are in `tests/` — run with:
+Testing 🧪
+---------------------------------
+- Minimal checks are in `tests/`:
 
 ```bash
 pytest -q tests/test_examples_imports.py
 ```
+
+Want more?
+---------------------------------
+- I can add CI, recorded fixtures for offline tests, or a polished `README_CLIENT.md` with client patterns — say the word and I'll do it! 🎯
 
 - `mylaps_client_wrapper.py` — tiny helper that constructs `Client` / `AuthenticatedClient`.
 - `requirements.txt` — dependencies used by the generated client and examples.
@@ -347,10 +355,6 @@ If you'd like I can implement any of the following (pick one or more):
 - Add an `--aggregate` flag to emit a single combined file for all events instead of per-event files.
 - Add a unit test that verifies exporter output using recorded fixtures (recommended for CI).
 
-Suggested git commit message for README update
 
-```
-docs: expand README with many practical examples and troubleshooting
-```
 
 
