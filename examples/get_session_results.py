@@ -107,7 +107,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
 
-    out_default = f"session_{args.session_id}_results.json"
+    out_default = f"output/session_{args.session_id}_results.json"
     outpath = Path(args.output or out_default)
 
     import asyncio
