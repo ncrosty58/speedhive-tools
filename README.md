@@ -139,11 +139,6 @@ If you'd like I can implement any of the following:
 ---
 
 If you'd like me to change the TOC style (e.g. a shorter TOC or grouped sections), tell me which layout you prefer and I'll update it.
-- Add a `--concurrency` CLI flag to control parallelism.
-
-- Add an `--aggregate` flag to emit a single combined file for all events instead of per-event files.
-
-- Add a unit test that verifies exporter output using recorded fixtures (recommended for CI).
 
 
 
