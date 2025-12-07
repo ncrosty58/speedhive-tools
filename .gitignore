@@ -217,10 +217,9 @@ __marimo__/
 
 #other
 data/
-*.json
-*.csv
-*.txt
 dump/
 *.ndjson
 *.sqlite*
+# Output directories for example runs
+output/
 announcements/

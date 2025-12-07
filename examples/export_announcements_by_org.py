@@ -158,7 +158,7 @@ async def export_announcements_for_org_async(org_id: int, out_dir: Path, client:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Export announcements for all sessions in events for an org")
     parser.add_argument("org_id", type=int, help="Organization id")
-    parser.add_argument("--output", "-o", default="./output_announcements", help="Output directory")
+    parser.add_argument("--output", "-o", default="./output/announcements", help="Output directory")
     parser.add_argument("--token", help="API token for authenticated endpoints", default=None)
     parser.add_argument("--verbose", action="store_true", help="Verbose debug output")
     parser.add_argument("--concurrency", "-c", type=int, default=20, help="Maximum concurrent requests")

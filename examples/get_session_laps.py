@@ -58,13 +58,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Fetch lap rows for a session and write JSON")
     parser.add_argument("session_id", type=int)
     parser.add_argument("--token", help="API token", default=None)
-    parser.add_argument("--output", help="Output file", default="session_laps.json")
+    parser.add_argument("--output", help="Output file (default: output/session_<id>_laps.json)", default=None)
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
 
     import asyncio
 
-    return asyncio.run(main_async(args.session_id, args.token, Path(args.output), args.verbose))
+    out_default = f"output/session_{args.session_id}_laps.json"
+    outpath = Path(args.output or out_default)
+    return asyncio.run(main_async(args.session_id, args.token, outpath, args.verbose))
 
 
 if __name__ == "__main__":
