@@ -78,6 +78,12 @@ python examples/export_announcements_by_org.py 30476 --output ./output/announcem
 python examples/get_session_results.py 9751807 --verbose
 ```
 
+- Export a full, incremental NDJSON dump (events, sessions, laps, announcements). Good for low-RAM machines; gzips output by default:
+
+```bash
+python examples/export_full_dump.py --org 30476 --output ./output/full_dump --verbose
+```
+
 Extra examples ✨
 ---------------------------------
 - List events by name (partial match):
