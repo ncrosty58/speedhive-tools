@@ -4,36 +4,16 @@ Utilities and examples for interacting with the MyLaps / Event Results API using
 
 This repository contains a generated client under `mylaps_client/` and example scripts that demonstrate how to list events and export session announcements for an organization.
 
-Table of contents
-
-- Quick start
-- Examples
-- Exporter details
-- Troubleshooting
-- Regenerating the client
-- Contributing
-
-Quick start
-
-Requirements
-- Python 3.10+
-- `pip install -r requirements.txt`
-# speedhive-tools
-
-Utilities and examples for interacting with the MyLaps / Event Results API using a locally-generated OpenAPI Python client.
-
-This repo includes a generated client and example scripts for exporting and processing event/session/lap data.
-
 ## Table of contents
 
-- [Quick Start](#quick-start)
-- [What’s in this repo](#whats-in-this-repo)
-- [Common commands](#common-commands)
-- [Process exported data](#process-exported-data)
-- [Notes & tips](#notes--tips)
-- [Regenerating the client](#regenerating-the-client)
-- [Testing and CI](#testing-and-ci)
-- [Contributing and next steps](#contributing-and-next-steps)
+- Quick Start
+- What’s in this repo
+- Common commands
+- Process exported data
+- Notes & tips
+- Regenerating the client
+- Testing and CI
+- Contributing and next steps
 
 ## Quick Start
 
@@ -139,6 +119,21 @@ If you'd like I can implement any of the following:
 ---
 
 If you'd like me to change the TOC style (e.g. a shorter TOC or grouped sections), tell me which layout you prefer.
+# speedhive-tools
 
+Utilities and examples for interacting with the MyLaps / Event Results API using a locally-generated OpenAPI Python client.
+
+This repository contains a generated client under `mylaps_client/` and example scripts that demonstrate how to list events and export session announcements for an organization.
+
+Table of contents
+
+- Quick start
+- Examples
+- Exporter details
+- Troubleshooting
+
+- Regenerating the client
+
+- Contributing
 
 
