@@ -22,6 +22,13 @@ def _iter_announcements(rec: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
         return []
     if isinstance(rec, list):
         return rec
+    # some exporters wrap announcements under an `announcements` key
+    if rec.get("announcements"):
+        a = rec.get("announcements")
+        if isinstance(a, list):
+            return a
+        if isinstance(a, dict) and isinstance(a.get("rows"), list):
+            return a.get("rows")
     if rec.get("rows"):
         return rec.get("rows")
     # fallback: maybe the announcements are the record itself
