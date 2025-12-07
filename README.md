@@ -9,7 +9,7 @@ This repository bundles a generated client (`mylaps_client/`) and a set of small
 ## 📚 Table of Contents
 
 - [Quick Start](#quick-start)
-- [What’s in this repo](#whats-in-this-repo)
+- [What's in this repo](#whats-in-this-repo)
 - [Common Commands](#common-commands)
 - [Process Exported Data](#process-exported-data)
 - [Interactive Processor CLI](#interactive-processor-cli)
@@ -34,7 +34,7 @@ Run examples from the repository root so the bundled `mylaps_client` is importab
 
 ---
 
-## 📁 What’s in this repo
+## 📁 What's in this repo
 
 - `mylaps_client/` — generated OpenAPI Python client (importable as `event_results_client`).
 - `examples/` — small, focused example scripts (exporters, API usage).
