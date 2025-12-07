@@ -1,36 +1,13 @@
 
-
 [project]
 name = "speedhive-tools"
 version = "0.1.0"
-description = "Python toolkit for MYLAPS Speedhive Event Results API: typed models, client, examples."
-readme = "README.md"
-requires-python = ">=3.9"
-license = { text = "MIT" }
-authors = [
-  { name = "Nathan Crosty" }
-]
-
-# Runtime dependencies
-dependencies = [
-  "requests>=2.31.0",
-  "pydantic>=2.5.0",
-]
-
-# Optional: entry points (CLI shortcuts)
-[project.scripts]
-speedhive-examples = "example_runner:main"
-
-# If you move examples into the package (e.g., speedhive_tools/examples.py), adjust the entry point accordingly.
+description = "Thin ergonomic wrappers for the Speedhive generated client"
+requires-python = ">=3.11"
+dependencies = ["httpx>=0.27","pydantic>=2.6","tenacity>=8.2"]
 
 [tool.setuptools]
-# Ensure we package the code under speedhive_tools/*
-package-dir = {"" = "."}
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["speedhive_tools*"]
-
-[build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+where = ["src"]
