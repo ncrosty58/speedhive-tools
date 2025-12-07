@@ -223,3 +223,4 @@ data/
 dump/
 *.ndjson
 *.sqlite*
+announcements/
