@@ -138,7 +138,7 @@ If you'd like I can implement any of the following:
 
 ---
 
-If you'd like me to change the TOC style (e.g. a shorter TOC or grouped sections), tell me which layout you prefer and I'll update it.
+If you'd like me to change the TOC style (e.g. a shorter TOC or grouped sections), tell me which layout you prefer.
 
 
 
