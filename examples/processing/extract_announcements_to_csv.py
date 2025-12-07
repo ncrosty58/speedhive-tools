@@ -14,6 +14,7 @@ import gzip
 import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
+from collections import defaultdict
 
 
 def _iter_announcements(rec: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
@@ -53,6 +54,8 @@ def extract(in_path: Path, out_path: Path) -> int:
         writer = csv.DictWriter(outf, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         count = 0
+        by_event: Dict[str, int] = defaultdict(int)
+        by_session: Dict[str, int] = defaultdict(int)
         for line in inf:
             if not line.strip():
                 continue
@@ -66,6 +69,26 @@ def extract(in_path: Path, out_path: Path) -> int:
                     "text": n.get("text"),
                 })
                 count += 1
+                # update summary counters
+                ev = rec.get("event_id") or rec.get("eventId")
+                sid = rec.get("session_id") or rec.get("sessionId")
+                if ev is not None:
+                    by_event[str(ev)] += 1
+                if sid is not None:
+                    by_session[str(sid)] += 1
+    # write a small JSON summary next to the CSV output
+    try:
+        summary = {
+            "total": count,
+            "by_event": dict(by_event),
+            "by_session": dict(by_session),
+        }
+        summary_path = out_path.parent / "announcements_summary.json"
+        summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf8")
+        print(f"Wrote summary to {summary_path}")
+    except Exception as exc:
+        print("Failed to write summary:", exc)
+
     return count
 
 
