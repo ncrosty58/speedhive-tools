@@ -163,6 +163,9 @@ results = client.get_results(session_id=789012)
 | `get_laps(session_id)` | Get all lap times for a session |
 | `get_results(session_id)` | Get classification/standings |
 | `get_announcements(session_id)` | Get session announcements |
+| `get_lap_chart(session_id)` | Get position changes per lap (for visualizations) |
+| `get_championships(org_id)` | Get championships for an organization |
+| `get_championship(championship_id)` | Get championship standings |
 | `get_server_time()` | Get API server time |
 
 ### With Authentication

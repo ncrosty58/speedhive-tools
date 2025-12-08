@@ -27,14 +27,16 @@ from typing import Any, Dict, Iterator, List, Optional
 
 from event_results_client import Client, AuthenticatedClient
 from event_results_client.api.system_time_controller import get_time as time_api
-from event_results_client.api.organization_controller import get_event_list, get_organization
+from event_results_client.api.organization_controller import get_event_list, get_organization, get_championship_list
 from event_results_client.api.event_controller import get_event, get_session_list
 from event_results_client.api.session_controller import (
     get_all_lap_times,
     get_classification,
     get_announcements,
     get_session,
+    get_lap_chart,
 )
+from event_results_client.api.championship_controller import get_championship
 
 
 @dataclass
@@ -287,6 +289,52 @@ class SpeedhiveClient:
         if isinstance(result, dict):
             return result.get("announcements", result.get("rows", []))
         return result if isinstance(result, list) else []
+
+    def get_lap_chart(self, session_id: int) -> List[Dict[str, Any]]:
+        """Get lap chart data for a session (position changes per lap).
+
+        This is useful for visualizing race progress and position changes.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            List of lap chart entries showing position per lap for each competitor.
+        """
+        response = get_lap_chart.sync_detailed(id=session_id, client=self._client)
+        result = self._parse_response(response)
+        if isinstance(result, dict):
+            return result.get("rows", result.get("chart", []))
+        return result if isinstance(result, list) else []
+
+    # -------------------------------------------------------------------------
+    # Championship endpoints
+    # -------------------------------------------------------------------------
+
+    def get_championships(self, org_id: int) -> List[Dict[str, Any]]:
+        """Get championships for an organization.
+
+        Args:
+            org_id: Organization ID
+
+        Returns:
+            List of championship dicts with keys like 'id', 'name', 'year', etc.
+        """
+        response = get_championship_list.sync_detailed(id=org_id, client=self._client)
+        result = self._parse_response(response)
+        return result if isinstance(result, list) else []
+
+    def get_championship(self, championship_id: int) -> Optional[Dict[str, Any]]:
+        """Get championship details and standings.
+
+        Args:
+            championship_id: Championship ID
+
+        Returns:
+            Championship dict with standings, events, and point allocations.
+        """
+        response = get_championship.sync_detailed(id=championship_id, client=self._client)
+        return self._parse_response(response)
 
     # -------------------------------------------------------------------------
     # Utility endpoints
