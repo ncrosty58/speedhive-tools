@@ -214,6 +214,28 @@ events = json.loads(response.content)
 
 For the full API specification, see the [MyLaps API Documentation](https://api2.mylaps.com/v3/api-docs).
 
+## Live timing / Realtime
+
+This project follows a "REST-first" policy and avoids scraping or reverse-
+engineering the public Speedhive web UI. For realtime/live-timing use
+cases there are two supported approaches:
+
+- Polling fallback: the examples include a simple polling streamer
+    (`examples/live_streamer/stream_laps.py`) that periodically calls the
+    official REST API (via `SpeedhiveClient.get_laps()`) and prints new lap
+    rows. This is suitable as a fallback when a documented realtime API is
+    not available.
+- Realtime client (future): a stub `LiveTimingClient` exists in
+    `mylaps_live_client.py` as a placeholder for an official realtime
+    implementation (WebSocket/SSE). When an official realtime API and
+    message specification are available, implement `LiveTimingClient` to
+    connect to that service and handle live updates.
+
+See `examples/live_streamer/README.md` for usage notes and examples. The
+`examples/live_streamer/find_live_orgs.py` helper is intentionally
+REST-only and requires a specific `--org` id (it does not perform broad
+unauthenticated scanning).
+
 ## Project Structure
 
 ```
