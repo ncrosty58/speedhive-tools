@@ -22,7 +22,10 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from mylaps_client_wrapper import SpeedhiveClient
+try:
+    from mylaps_live_client import LiveTimingClient  # type: ignore
+except Exception:
+    LiveTimingClient = None  # type: ignore
 
 
 def main() -> int:
@@ -52,7 +55,14 @@ def main() -> int:
         return 0
 
     # If a token is provided and the user explicitly requested real queries,
-    # run the REST-backed listing behavior.
+    # run the REST-backed listing behavior. Import the REST wrapper lazily
+    # so the example defaults to the LiveTimingClient stub in demo mode.
+    try:
+        from mylaps_client_wrapper import SpeedhiveClient  # type: ignore
+    except Exception:
+        print("Error: SpeedhiveClient is not available in this environment.")
+        return 1
+
     client = SpeedhiveClient(token=args.token)
 
     print(f"Fetching up to {args.limit} events for org {args.org}...")
