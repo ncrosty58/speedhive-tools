@@ -171,7 +171,23 @@ class SpeedhiveClient:
         """
         response = get_session_list.sync_detailed(id=event_id, client=self._client)
         result = self._parse_response(response)
-        return result if isinstance(result, list) else []
+
+        # Handle various response formats
+        if isinstance(result, list):
+            return result
+
+        if isinstance(result, dict):
+            sessions = []
+            # Direct sessions array
+            if isinstance(result.get("sessions"), list):
+                sessions.extend(result["sessions"])
+            # Sessions nested under groups
+            for group in result.get("groups", []):
+                if isinstance(group.get("sessions"), list):
+                    sessions.extend(group["sessions"])
+            return sessions
+
+        return []
 
     # -------------------------------------------------------------------------
     # Session endpoints
@@ -189,21 +205,58 @@ class SpeedhiveClient:
         response = get_session.sync_detailed(id=session_id, client=self._client)
         return self._parse_response(response)
 
-    def get_laps(self, session_id: int) -> List[Dict[str, Any]]:
+    def get_laps(self, session_id: int, flatten: bool = True) -> List[Dict[str, Any]]:
         """Get all lap times for a session.
 
         Args:
             session_id: Session ID
+            flatten: If True, flatten laps from all competitors into a single list
+                     with competitor info included. If False, return raw response.
 
         Returns:
             List of lap dicts with keys like 'competitorId', 'lapNumber', 'lapTime', etc.
         """
         response = get_all_lap_times.sync_detailed(id=session_id, client=self._client)
         result = self._parse_response(response)
-        # API may return {'rows': [...]} or a raw list
+
+        # Handle various response formats
         if isinstance(result, dict):
-            return result.get("rows", result.get("laps", []))
-        return result if isinstance(result, list) else []
+            rows = result.get("rows", result.get("laps", []))
+            if not flatten:
+                return rows
+            result = rows
+
+        if not isinstance(result, list):
+            return []
+
+        # Check if this is already flattened or needs flattening
+        # Format 1: List of competitors with nested laps
+        # Format 2: Already flat list of lap records
+        if result and isinstance(result[0], dict):
+            if "laps" in result[0]:
+                # Format 1: Need to flatten - each item is a competitor with laps array
+                if not flatten:
+                    return result
+                flat = []
+                for competitor in result:
+                    comp_id = competitor.get("competitorId") or competitor.get("id")
+                    position = competitor.get("position")
+                    for lap in competitor.get("laps", []):
+                        flat.append({
+                            "competitorId": comp_id,
+                            "position": position,
+                            "lapNumber": lap.get("lap") or lap.get("lapNumber"),
+                            "lapTime": lap.get("lapTime") or lap.get("lap_time"),
+                            "speed": lap.get("speed"),
+                            "inPit": lap.get("inPit"),
+                            **{k: v for k, v in lap.items() if k not in ("lap", "lapNumber", "lapTime", "lap_time", "speed", "inPit")}
+                        })
+                return flat
+            else:
+                # Format 2: Already flat
+                return result
+
+        return result
 
     def get_results(self, session_id: int) -> List[Dict[str, Any]]:
         """Get classification/results for a session.

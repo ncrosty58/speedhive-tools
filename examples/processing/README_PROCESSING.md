@@ -7,15 +7,9 @@ files produced by `examples/export_full_dump.py`.
 Included scripts
 ----------------
 
-- `extract_laps_to_csv.py` — stream `laps.ndjson.gz` and write a flattened CSV of lap rows.
+- `extract_events_to_csv.py` — stream `events.ndjson.gz` and write a flattened CSV of events.
   ```bash
-  python examples/processing/extract_laps_to_csv.py --input output/full_dump/30476 --out output/full_dump/30476/laps_flat.csv
-  ```
-
-- `ndjson_to_sqlite.py` — import NDJSON files into a SQLite database for SQL queries.
-  ```bash
-  python examples/processing/ndjson_to_sqlite.py --input output/full_dump/30476/laps.ndjson.gz --out output/full_dump/30476/dump.db
-  sqlite3 output/full_dump/30476/dump.db "SELECT COUNT(*) FROM laps;"
+  python examples/processing/extract_events_to_csv.py --input output/full_dump/30476 --out output/full_dump/30476/events_flat.csv
   ```
 
 - `extract_sessions_to_csv.py` — stream `sessions.ndjson.gz` and write a flattened CSV of sessions.
@@ -23,9 +17,20 @@ Included scripts
   python examples/processing/extract_sessions_to_csv.py --input output/full_dump/30476 --out output/full_dump/30476/sessions_flat.csv
   ```
 
+- `extract_laps_to_csv.py` — stream `laps.ndjson.gz` and write a flattened CSV of lap rows.
+  ```bash
+  python examples/processing/extract_laps_to_csv.py --input output/full_dump/30476 --out output/full_dump/30476/laps_flat.csv
+  ```
+
 - `extract_announcements_to_csv.py` — stream `announcements.ndjson.gz` and write a flattened CSV.
   ```bash
   python examples/processing/extract_announcements_to_csv.py --input output/full_dump/30476 --out output/full_dump/30476/announcements_flat.csv
+  ```
+
+- `ndjson_to_sqlite.py` — import NDJSON files into a SQLite database for SQL queries.
+  ```bash
+  python examples/processing/ndjson_to_sqlite.py --input output/full_dump/30476/laps.ndjson.gz --out output/full_dump/30476/dump.db
+  sqlite3 output/full_dump/30476/dump.db "SELECT COUNT(*) FROM laps;"
   ```
 
 - `processor_cli.py` — interactive CLI that scans `output/full_dump/` for orgs and runs the above extractors (and the SQLite import) for a selected org or `all`.
