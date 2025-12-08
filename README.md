@@ -73,6 +73,8 @@ python examples/processing/processor_cli.py
 | `export_championships.py --org <id>` | Export championships for an organization |
 | `export_championships.py --championship <id>` | Export championship standings |
 | `export_lap_chart.py <session_id>` | Export lap chart data for visualizations |
+| `export_track_records.py --org <id>` | Export track records for an organization |
+| `get_fastest_records.py --org <id>` | Get fastest track record for each classification |
 
 ### Export Options
 
@@ -151,6 +153,16 @@ for lap in laps:
 
 # Get results/classification
 results = client.get_results(session_id=789012)
+
+# Get track records for an organization
+records = client.get_track_records(org_id=30476, classification="IT7")
+for record in records:
+    print(f"{record['classification']}: {record['lap_time']} by {record['driver']}")
+
+# Get the fastest track record for a classification
+fastest = client.get_fastest_track_record(org_id=30476, classification="IT7")
+if fastest:
+    print(f"Fastest IT7: {fastest['lap_time']} by {fastest['driver']}")
 ```
 
 ### Available Methods
@@ -169,6 +181,9 @@ results = client.get_results(session_id=789012)
 | `get_lap_chart(session_id)` | Get position changes per lap (for visualizations) |
 | `get_championships(org_id)` | Get championships for an organization |
 | `get_championship(championship_id)` | Get championship standings |
+| `get_track_records(org_id, classification, limit_events)` | Get track records for an organization |
+| `get_fastest_track_record(org_id, classification, limit_events)` | Get fastest track record for a classification |
+| `iter_track_records_by_event(org_id, classification)` | Memory-efficient iterator for track records |
 | `get_server_time()` | Get API server time |
 
 ### With Authentication
@@ -194,6 +209,34 @@ for event in client.iter_events(org_id=30476):
         laps = client.get_laps(session['id'])
         print(f"  {session['name']}: {len(laps)} laps")
 ```
+
+### Track Records
+
+Track records are extracted from session announcements. The API efficiently scans events to find "New Track Record" announcements:
+
+```python
+client = SpeedhiveClient()
+
+# Get all track records for an organization
+records = client.get_track_records(org_id=30476)
+
+# Filter by classification
+it7_records = client.get_track_records(org_id=30476, classification="IT7")
+
+# Get only the fastest (current) record for a classification
+fastest = client.get_fastest_track_record(org_id=30476, classification="IT7")
+if fastest:
+    print(f"{fastest['classification']}: {fastest['lap_time']} by {fastest['driver']}")
+
+# Memory-efficient iteration (processes one event at a time)
+for record in client.iter_track_records_by_event(org_id=30476):
+    print(f"{record['classification']}: {record['lap_time']}")
+```
+
+**Performance Tips:**
+- Use `limit_events` parameter to limit the scan for testing/development
+- Use `iter_track_records_by_event()` for large organizations to avoid loading all data into memory
+- Filter by `classification` to reduce processing time
 
 ### Using the Raw Client
 

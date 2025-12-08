@@ -22,6 +22,7 @@ Example usage:
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterator, List, Optional, cast
 
@@ -349,6 +350,248 @@ class SpeedhiveClient:
         """
         result = time_api.sync(client=self._client)
         return result
+
+    # -------------------------------------------------------------------------
+    # Track Record endpoints
+    # -------------------------------------------------------------------------
+
+    def get_track_records(
+        self,
+        org_id: int,
+        classification: Optional[str] = None,
+        limit_events: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Get track records for an organization.
+
+        Track records are extracted from session announcements. This method
+        efficiently scans events and sessions to find announcements containing
+        "New Track Record" or "New Class Record" text.
+
+        Args:
+            org_id: Organization ID
+            classification: Optional classification filter (e.g., "IT7", "T4", "P2")
+            limit_events: Optional limit on number of events to scan (for performance)
+
+        Returns:
+            List of track record dicts with keys:
+                - event_id: Event ID where record was set
+                - event_name: Event name
+                - session_id: Session ID where record was set
+                - session_name: Session name
+                - classification: Classification/class name (e.g., "IT7")
+                - lap_time: Lap time string (e.g., "1:17.870")
+                - lap_time_seconds: Lap time in seconds (float)
+                - driver: Driver name
+                - timestamp: ISO timestamp when record was set
+                - text: Full announcement text
+
+        Example:
+            >>> client = SpeedhiveClient()
+            >>> records = client.get_track_records(org_id=30476, classification="IT7")
+            >>> for r in records:
+            ...     print(f"{r['classification']}: {r['lap_time']} by {r['driver']}")
+        """
+        records = []
+        
+        # Pattern to match: "New Track Record (1:17.870) for IT7 by Bob Cross."
+        #                or "New Class Record (1:17.129) for IT7 by Bob Cross."
+        pattern = re.compile(
+            r"New (?:Track|Class) Record\s*\(([0-9:.]+)\)\s*for\s+([^\s]+)\s+by\s+(.+?)\.?$",
+            re.IGNORECASE
+        )
+
+        events = self.get_events(org_id=org_id, limit=limit_events or 10000)
+        
+        for event in events:
+            event_id = event.get("id")
+            event_name = event.get("name")
+            
+            if not event_id:
+                continue
+            
+            try:
+                sessions = self.get_sessions(event_id=event_id)
+            except Exception:
+                continue
+            
+            for session in sessions:
+                session_id = session.get("id")
+                session_name = session.get("name")
+                
+                if not session_id:
+                    continue
+                
+                try:
+                    announcements = self.get_announcements(session_id=session_id)
+                except Exception:
+                    continue
+                
+                for ann in announcements:
+                    text = ann.get("text") or ann.get("message") or ""
+                    timestamp = ann.get("timestamp") or ann.get("time")
+                    
+                    match = pattern.search(text)
+                    if match:
+                        lap_time_str = match.group(1)
+                        class_name = match.group(2)
+                        driver_name = match.group(3).strip()
+                        
+                        # Filter by classification if requested
+                        if classification and class_name.upper() != classification.upper():
+                            continue
+                        
+                        # Convert lap time to seconds for sorting
+                        lap_seconds = self._parse_lap_time(lap_time_str)
+                        
+                        records.append({
+                            "event_id": event_id,
+                            "event_name": event_name,
+                            "session_id": session_id,
+                            "session_name": session_name,
+                            "classification": class_name,
+                            "lap_time": lap_time_str,
+                            "lap_time_seconds": lap_seconds,
+                            "driver": driver_name,
+                            "timestamp": timestamp,
+                            "text": text,
+                        })
+        
+        # Sort by classification, then by lap time (fastest first)
+        records.sort(key=lambda r: (r["classification"], r["lap_time_seconds"] or float('inf')))
+        return records
+
+    def get_fastest_track_record(
+        self,
+        org_id: int,
+        classification: str,
+        limit_events: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Get the fastest (current) track record for a classification.
+
+        Args:
+            org_id: Organization ID
+            classification: Classification name (e.g., "IT7", "T4", "P2")
+            limit_events: Optional limit on number of events to scan
+
+        Returns:
+            Single track record dict (the fastest one) or None if not found
+
+        Example:
+            >>> client = SpeedhiveClient()
+            >>> record = client.get_fastest_track_record(org_id=30476, classification="IT7")
+            >>> if record:
+            ...     print(f"Fastest {record['classification']}: {record['lap_time']} by {record['driver']}")
+        """
+        records = self.get_track_records(
+            org_id=org_id,
+            classification=classification,
+            limit_events=limit_events
+        )
+        return records[0] if records else None
+
+    def iter_track_records_by_event(
+        self,
+        org_id: int,
+        classification: Optional[str] = None,
+    ) -> Iterator[Dict[str, Any]]:
+        """Iterate track records event by event (memory efficient).
+
+        This method yields track records as events are processed, avoiding
+        loading all events into memory at once.
+
+        Args:
+            org_id: Organization ID
+            classification: Optional classification filter
+
+        Yields:
+            Track record dicts one at a time
+
+        Example:
+            >>> client = SpeedhiveClient()
+            >>> for record in client.iter_track_records_by_event(org_id=30476):
+            ...     print(f"{record['classification']}: {record['lap_time']}")
+        """
+        pattern = re.compile(
+            r"New Track Record\s*\(([0-9:.]+)\)\s*for\s+([^\s]+)\s+by\s+(.+?)\.?$",
+            re.IGNORECASE
+        )
+
+        for event in self.iter_events(org_id=org_id):
+            event_id = event.get("id")
+            event_name = event.get("name")
+            
+            if not event_id:
+                continue
+            
+            try:
+                sessions = self.get_sessions(event_id=event_id)
+            except Exception:
+                continue
+            
+            for session in sessions:
+                session_id = session.get("id")
+                session_name = session.get("name")
+                
+                if not session_id:
+                    continue
+                
+                try:
+                    announcements = self.get_announcements(session_id=session_id)
+                except Exception:
+                    continue
+                
+                for ann in announcements:
+                    text = ann.get("text") or ann.get("message") or ""
+                    timestamp = ann.get("timestamp") or ann.get("time")
+                    
+                    match = pattern.search(text)
+                    if match:
+                        lap_time_str = match.group(1)
+                        class_name = match.group(2)
+                        driver_name = match.group(3).strip()
+                        
+                        if classification and class_name.upper() != classification.upper():
+                            continue
+                        
+                        lap_seconds = self._parse_lap_time(lap_time_str)
+                        
+                        yield {
+                            "event_id": event_id,
+                            "event_name": event_name,
+                            "session_id": session_id,
+                            "session_name": session_name,
+                            "classification": class_name,
+                            "lap_time": lap_time_str,
+                            "lap_time_seconds": lap_seconds,
+                            "driver": driver_name,
+                            "timestamp": timestamp,
+                            "text": text,
+                        }
+
+    @staticmethod
+    def _parse_lap_time(lap_time_str: str) -> Optional[float]:
+        """Parse lap time string to seconds.
+
+        Supports formats: "1:17.870", "63.004", "1:03.004"
+
+        Args:
+            lap_time_str: Lap time string
+
+        Returns:
+            Lap time in seconds or None if parsing fails
+        """
+        try:
+            parts = lap_time_str.split(":")
+            if len(parts) == 2:
+                # Format: "1:17.870"
+                minutes = int(parts[0])
+                seconds = float(parts[1])
+                return minutes * 60 + seconds
+            else:
+                # Format: "63.004"
+                return float(lap_time_str)
+        except (ValueError, IndexError):
+            return None
 
 
 # ---------------------------------------------------------------------------
