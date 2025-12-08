@@ -15,7 +15,6 @@ import json
 import time
 from typing import Any, Dict, Iterable, Set, Tuple
 
-from mylaps_client_wrapper import SpeedhiveClient
 try:
     from mylaps_live_client import LiveTimingClient
 except Exception:
@@ -36,7 +35,7 @@ def make_key(row: Dict[str, Any]) -> Tuple[Any, Any]:
     return (comp, ts)
 
 
-def poll_session_laps(client: SpeedhiveClient, session_id: int, interval: float = 2.0) -> Iterable[Dict[str, Any]]:
+def poll_session_laps(client, session_id: int, interval: float = 2.0) -> Iterable[Dict[str, Any]]:
     """Generator that polls the session and yields new lap rows.
 
     This keeps a set of seen keys and yields rows whose key was not previously
@@ -76,6 +75,13 @@ def main() -> int:
     parser.add_argument("--real", action="store_true", help="Run real polling behavior (default: demo/stub mode)")
     parser.add_argument("--json", dest="jsonl", action="store_true", help="Print rows as JSON lines (default)")
     args = parser.parse_args()
+
+    # Lazily import the REST wrapper if running in real mode
+    try:
+        from mylaps_client_wrapper import SpeedhiveClient  # type: ignore
+    except Exception:
+        print("Error: SpeedhiveClient is not available in this environment.")
+        return 1
 
     client = SpeedhiveClient(token=args.token)
 
