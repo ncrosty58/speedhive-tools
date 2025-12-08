@@ -24,7 +24,7 @@ import gzip
 import json
 import sys
 from pathlib import Path
-from typing import Any, Iterable, List, Optional
+from typing import Any, Iterable, List, Optional, Callable, Awaitable, Dict, Set, cast
 import time
 import os
 import inspect
@@ -38,16 +38,19 @@ from event_results_client import Client, AuthenticatedClient
 # Import endpoint callables in try/except blocks so the module can be imported
 # even if a particular generated function is missing. At runtime we check and
 # provide a clear error message if a required endpoint is not available.
+get_events_for_org_async: Optional[Callable[..., Awaitable[Any]]] = None
 try:
     from event_results_client.api.organization_controller.get_event_list import asyncio_detailed as get_events_for_org_async
 except Exception:
     get_events_for_org_async = None
 
+get_sessions_for_event_async: Optional[Callable[..., Awaitable[Any]]] = None
 try:
     from event_results_client.api.event_controller.get_session_list import asyncio_detailed as get_sessions_for_event_async
 except Exception:
     get_sessions_for_event_async = None
 
+get_announcements_for_session_async: Optional[Callable[..., Awaitable[Any]]] = None
 try:
     from event_results_client.api.session_controller.get_announcements import asyncio_detailed as get_announcements_for_session_async
 except Exception:
@@ -55,7 +58,7 @@ except Exception:
 
 # The generated client may expose lap data under multiple endpoint names.
 # Try a few common variants and pick the first one that exists.
-get_lap_rows_async = None
+get_lap_rows_async: Optional[Callable[..., Awaitable[Any]]] = None
 for candidate in (
     "get_all_lap_times",
     "get_lap_times",
@@ -69,10 +72,11 @@ for candidate in (
             # Wrap the chosen callable so callers can always use (session_id, client)
             sig = inspect.signature(candidate_callable)
 
-            async def _wrapped(session_id: int, *, client: Client):
+            # Capture candidate_callable and sig into defaults to avoid late-binding
+            async def _wrapped(session_id: int, *, client: Client, _call=candidate_callable, _sig=sig):
                 kwargs = {"id": session_id, "client": client}
                 # If the signature expects additional named params, provide safe defaults
-                for p in sig.parameters.values():
+                for p in _sig.parameters.values():
                     if p.name in ("id", "client"):
                         continue
                     if p.default is not inspect._empty:
@@ -81,7 +85,7 @@ for candidate in (
                     # provide a conservative default for common numeric params
                     kwargs[p.name] = 0
 
-                return await candidate_callable(**kwargs)
+                return await _call(**kwargs)
 
             get_lap_rows_async = _wrapped
             break
@@ -89,7 +93,7 @@ for candidate in (
         get_lap_rows_async = None
 
 
-def build_client(token: Optional[str] = None) -> Client:
+def build_client(token: Optional[str] = None) -> Client | AuthenticatedClient:
     if token:
         return AuthenticatedClient(base_url="https://api2.mylaps.com", token=token)
     return Client(base_url="https://api2.mylaps.com")
@@ -131,6 +135,12 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
     HAVE_ANNOUNCEMENTS = callable(get_announcements_for_session_async)
     HAVE_LAP_ROWS = callable(get_lap_rows_async)
 
+    # After checking availability, cast to callables for type-checkers
+    get_events = cast(Callable[..., Awaitable[Any]], get_events_for_org_async) if HAVE_EVENTS else None
+    get_sessions = cast(Callable[..., Awaitable[Any]], get_sessions_for_event_async) if HAVE_SESSIONS else None
+    get_announcements = cast(Optional[Callable[..., Awaitable[Any]]], get_announcements_for_session_async) if HAVE_ANNOUNCEMENTS else None
+    get_lap_rows = cast(Optional[Callable[..., Awaitable[Any]]], get_lap_rows_async) if HAVE_LAP_ROWS else None
+
     if not HAVE_EVENTS:
         raise RuntimeError("Required endpoint function `get_events_for_org_async` is not available in the generated client. Regenerate the client or add the missing endpoint.")
     if not HAVE_SESSIONS:
@@ -141,7 +151,7 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
     if not HAVE_LAP_ROWS and verbose:
         print("[WARN] lap rows endpoint missing in generated client; exporter will skip lap rows")
 
-    events_resp = await get_events_for_org_async(org_id, client=client)
+    events_resp = await get_events(org_id, client=client)
     if verbose:
         print(f"[DEBUG] events request status={getattr(events_resp,'status_code',None)} size={len(events_resp.content) if getattr(events_resp,'content',None) else 0}")
     events_payload = safe_load_json(getattr(events_resp, "content", None)) or []
@@ -205,6 +215,10 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
 
     async def fetch_and_write_for_event(ev: dict, event_index: int) -> None:
         ev_id = ev.get("id")
+        if ev_id is None:
+            _log(f"[WARN] skipping event with missing id: {ev}")
+            return
+        ev_id = int(ev_id)
         ev_name = ev.get("name")
         base_event = {"org_id": org_id, "event_id": ev_id, "event_name": ev_name}
         # skip if already completed in checkpoint
@@ -220,7 +234,7 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
             print(f"[PROGRESS] Event {event_index}/{total_events}: id={ev_id} name={ev_name}")
 
         async with sem:
-            sresp = await get_sessions_for_event_async(ev_id, client=client)
+            sresp = await get_sessions(ev_id, client=client)
         sess_payload = safe_load_json(getattr(sresp, "content", None)) or []
         raw_sessions: List[dict] = []
         if isinstance(sess_payload, list):
@@ -242,6 +256,9 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
 
         for s in raw_sessions:
             sid = s.get("id")
+            if sid is None:
+                continue
+            sid = int(sid)
             sessions_write({**base_event, "session_id": sid, "raw": s})
 
         # Prepare per-event session progress tracking
@@ -251,8 +268,9 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
 
         async def fetch_session_details(sdict: dict) -> None:
             sid = sdict.get("id")
-            if not sid:
+            if sid is None:
                 return
+            sid = int(sid)
             nonlocal session_done, session_start_time
             # skip session if already processed in checkpoint
             if sid in sessions_processed.get(ev_id, set()):
@@ -264,9 +282,9 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
                 session_start_time = time.monotonic()
             t0 = time.monotonic()
             # announcements (optional)
-            if HAVE_ANNOUNCEMENTS:
+            if HAVE_ANNOUNCEMENTS and get_announcements is not None:
                 async with sem:
-                    aresp = await get_announcements_for_session_async(sid, client=client)
+                    aresp = await get_announcements(sid, client=client)
                 a_payload = safe_load_json(getattr(aresp, "content", None))
                 if a_payload:
                     anns_write({**base_event, "session_id": sid, "announcements": a_payload})
@@ -276,9 +294,9 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
 
             # lap rows
             # lap rows (optional)
-            if HAVE_LAP_ROWS:
+            if HAVE_LAP_ROWS and get_lap_rows is not None:
                 async with sem:
-                    lresp = await get_lap_rows_async(sid, client=client)
+                    lresp = await get_lap_rows(sid, client=client)
                 l_payload = safe_load_json(getattr(lresp, "content", None))
                 if l_payload:
                     # normalize rows if wrapped
