@@ -73,6 +73,7 @@ def main() -> int:
     parser.add_argument("--interval", "-i", type=float, default=2.0, help="Poll interval in seconds")
     parser.add_argument("--use-live-client", action="store_true", help="Use `LiveTimingClient` polling fallback (if available)")
     parser.add_argument("--real", action="store_true", help="Run real polling behavior (default: demo/stub mode)")
+    parser.add_argument("--demo-duration", type=float, default=None, help="When in demo mode, run for this many seconds and exit")
     parser.add_argument("--json", dest="jsonl", action="store_true", help="Print rows as JSON lines (default)")
     args = parser.parse_args()
 
@@ -111,8 +112,15 @@ def main() -> int:
         try:
             live.start_polling_fallback(session_id=args.session, callback=demo_cb, interval=args.interval)
             print("  Polling fallback started (press Ctrl-C to stop).")
-            while True:
-                time.sleep(1.0)
+            start = time.monotonic()
+            if args.demo_duration is None:
+                # block until interrupted
+                while True:
+                    time.sleep(1.0)
+            else:
+                # run demo for a bounded duration then exit
+                while time.monotonic() - start < float(args.demo_duration):
+                    time.sleep(0.1)
         except KeyboardInterrupt:
             print("\nStopped demo by user")
         finally:
