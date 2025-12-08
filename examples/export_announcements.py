@@ -61,6 +61,8 @@ def export_org_announcements(client: SpeedhiveClient, org_id: int, output_dir: P
 
     for event in client.iter_events(org_id=org_id):
         event_id = event.get("id")
+        if not event_id:
+            continue
         event_name = event.get("name", "Unknown")
 
         if verbose:
