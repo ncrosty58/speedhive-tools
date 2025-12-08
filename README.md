@@ -121,6 +121,102 @@ python examples/processing/processor_cli.py
 python examples/processing/processor_cli.py --org 30476 --run-all
 ```
 
+## Using the Client Library
+
+If you want to build your own programs using the MyLaps API, you can use the generated client directly.
+
+### Basic Setup
+
+```python
+import sys
+sys.path.insert(0, "mylaps_client")  # Add client to path
+
+from event_results_client import Client, AuthenticatedClient
+
+# Create a client (no auth required for most public endpoints)
+client = Client(base_url="https://api2.mylaps.com")
+
+# For authenticated endpoints, use AuthenticatedClient
+client = AuthenticatedClient(base_url="https://api2.mylaps.com", token="YOUR_API_TOKEN")
+```
+
+### Available API Modules
+
+The client is organized by controller:
+
+| Module | Description |
+|--------|-------------|
+| `organization_controller` | Get organizations, list events for an org |
+| `event_controller` | Get event details, list sessions |
+| `session_controller` | Get lap times, results, classifications, announcements |
+| `championship_controller` | Championship standings and data |
+| `account_controller` | Account/member information (authenticated) |
+
+### Example: List Events for an Organization
+
+```python
+from event_results_client import Client
+from event_results_client.api.organization_controller.get_event_list import sync_detailed
+import json
+
+client = Client(base_url="https://api2.mylaps.com")
+
+# Get events for organization ID 30476
+response = sync_detailed(id=30476, client=client, count=50, offset=0)
+events = json.loads(response.content)
+
+for event in events:
+    print(f"{event['id']}: {event['name']}")
+```
+
+### Example: Get Lap Times for a Session
+
+```python
+from event_results_client import Client
+from event_results_client.api.session_controller.get_all_lap_times import sync_detailed
+import json
+
+client = Client(base_url="https://api2.mylaps.com")
+
+response = sync_detailed(id=12345, client=client)  # session ID
+laps = json.loads(response.content)
+
+for lap in laps.get("rows", []):
+    print(f"Lap {lap.get('lapNumber')}: {lap.get('lapTime')}")
+```
+
+### Async Support
+
+All endpoints have async variants for use with `asyncio`:
+
+```python
+import asyncio
+from event_results_client import Client
+from event_results_client.api.session_controller.get_lap_rows import asyncio_detailed
+
+async def fetch_laps(session_id: int):
+    client = Client(base_url="https://api2.mylaps.com")
+    async with client:
+        response = await asyncio_detailed(session_id, client=client)
+        return response.content
+
+laps = asyncio.run(fetch_laps(12345))
+```
+
+### Key Endpoints Reference
+
+| Endpoint | Function | Description |
+|----------|----------|-------------|
+| `GET /v2/organizations/{id}/events` | `organization_controller.get_event_list` | List events for an org |
+| `GET /v2/events/{id}` | `event_controller.get_event` | Get event details |
+| `GET /v2/events/{id}/sessions` | `event_controller.get_session_list` | List sessions for event |
+| `GET /sessions/{id}/laptimes` | `session_controller.get_lap_times` | Get lap times |
+| `GET /sessions/{id}/laprows` | `session_controller.get_lap_data_response` | Get detailed lap rows |
+| `GET /sessions/{id}/classification` | `session_controller.get_classification` | Get results/standings |
+| `GET /sessions/{id}/announcements` | `session_controller.get_announcements` | Get announcements |
+
+For the full API specification, see the [MyLaps API Documentation](https://api2.mylaps.com/v3/api-docs).
+
 ## Project Structure
 
 ```
