@@ -32,19 +32,39 @@ def main() -> int:
     p.add_argument("--limit", type=int, default=20, help="Maximum number of events to return")
     args = p.parse_args()
 
+    # Demo-first: show how to use the LiveTimingClient stub for realtime
+    # reference. Use `--real` to run the REST-backed query for events.
+    if not args.token:
+        print("Demo mode: no token provided. Showing LiveTimingClient usage (stub).")
+        try:
+            from mylaps_live_client import LiveTimingClient  # type: ignore
+        except Exception:
+            print("  (LiveTimingClient stub not available in this environment)")
+            print("  Example usage:")
+            print("    live = LiveTimingClient(token='MYTOKEN')")
+            print("    live.connect()")
+            print("    live.subscribe_session(session_key, callback)")
+            return 0
+
+        live = LiveTimingClient(token=None)
+        print("  Created LiveTimingClient (stub). Methods: connect(), subscribe_session(), start_polling_fallback(), close()")
+        print("  This is a reference-only demo; realtime methods are intentionally unimplemented.")
+        return 0
+
+    # If a token is provided and the user explicitly requested real queries,
+    # run the REST-backed listing behavior.
     client = SpeedhiveClient(token=args.token)
 
     print(f"Fetching up to {args.limit} events for org {args.org}...")
     events = client.get_events(org_id=args.org, limit=args.limit)
     if not events:
-        print("No events returned. If you expected results, provide a valid API token or verify the org id.")
+        print("No events returned. If you expected results, verify your token and org id.")
         return 1
 
     for ev in events:
         event_id = ev.get("id")
         name = ev.get("name") or ev.get("title")
         date = ev.get("date") or ev.get("startDate")
-        # try to get session count if sessions are present
         sessions = ev.get("sessions") or []
         print(f"- Event {event_id}: {name} date={date} sessions={len(sessions)}")
 

@@ -73,33 +73,42 @@ def main() -> int:
     parser.add_argument("--token", "-t", default=None, help="API token (optional)")
     parser.add_argument("--interval", "-i", type=float, default=2.0, help="Poll interval in seconds")
     parser.add_argument("--use-live-client", action="store_true", help="Use `LiveTimingClient` polling fallback (if available)")
+    parser.add_argument("--real", action="store_true", help="Run real polling behavior (default: demo/stub mode)")
     parser.add_argument("--json", dest="jsonl", action="store_true", help="Print rows as JSON lines (default)")
     args = parser.parse_args()
 
     client = SpeedhiveClient(token=args.token)
 
-    # Optionally use the LiveTimingClient polling fallback if requested
-    if args.use_live_client and LiveTimingClient is not None:
+    # If not in "real" mode, run a demo/stub that shows how to use the
+    # LiveTimingClient without making network calls. This keeps the examples
+    # safe to run and suitable for documentation/reference purposes.
+    if not args.real:
+        print("Demo mode: using `LiveTimingClient` as a stubbed reference.")
+        if LiveTimingClient is None:
+            print("  (mylaps_live_client.LiveTimingClient not available in this environment)")
+            print("  Example usage (pseudo-code):")
+            print("    live = LiveTimingClient(token='MYTOKEN')")
+            print("    live.connect()  # establish websocket/SSE connection")
+            print("    live.subscribe_session(session_key, callback)")
+            print("    # on shutdown: live.close()")
+            return 0
+
         live = LiveTimingClient(token=args.token)
+        print("  Created LiveTimingClient (stub)")
+        print("  Methods available (stub): connect(), subscribe_session(), subscribe_announcements(), start_polling_fallback(), close()")
+        print("  The realtime methods are intentionally unimplemented; call `start_polling_fallback()` to run a safe polling demo.")
 
-        def cb(row: dict) -> None:
-            if args.jsonl:
-                print(json.dumps(row, ensure_ascii=False))
-            else:
-                comp = row.get("competitorId") or row.get("id")
-                lapnum = row.get("lapNumber") or row.get("lap")
-                laptime = row.get("lapTime") or row.get("lap_time")
-                print(f"Competitor={comp} lap={lapnum} time={laptime}")
+        def demo_cb(row: dict) -> None:
+            print("[demo callback] row:", json.dumps(row, ensure_ascii=False))
 
-        print(f"Starting LiveTimingClient polling fallback for session {args.session} (interval {args.interval}s)")
-        live.start_polling_fallback(session_id=args.session, callback=cb, interval=args.interval)
-
+        print("  Starting guarded polling fallback demo (no network unless REST client is configured)...")
         try:
-            # block until interrupted
+            live.start_polling_fallback(session_id=args.session, callback=demo_cb, interval=args.interval)
+            print("  Polling fallback started (press Ctrl-C to stop).")
             while True:
                 time.sleep(1.0)
         except KeyboardInterrupt:
-            print("\nStopped by user")
+            print("\nStopped demo by user")
         finally:
             live.close()
 
