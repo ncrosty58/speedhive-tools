@@ -33,6 +33,9 @@ TODOs:
 from __future__ import annotations
 
 from typing import Any, Callable, Optional
+import threading
+import time
+from types import SimpleNamespace
 
 
 class LiveTimingClient:
@@ -67,7 +70,13 @@ class LiveTimingClient:
 
     def close(self) -> None:
         """Close the realtime connection and clean up resources."""
-        raise NotImplementedError("LiveTimingClient.close() is not implemented yet.")
+        # Stop any polling fallback thread if running
+        if getattr(self, "_stop_event", None):
+            self._stop_event.set()
+        thread = getattr(self, "_poll_thread", None)
+        if thread and thread.is_alive():
+            thread.join(timeout=2.0)
+        self._connected = False
 
     def subscribe_session(self, session_key: str | int, callback: Callable[[dict], Any]) -> None:
         """Subscribe to realtime updates for a session.
@@ -94,7 +103,70 @@ class LiveTimingClient:
         thread in the future. For now this is a placeholder to document the
         intended behavior.
         """
-        raise NotImplementedError("LiveTimingClient.start_polling_fallback() is a TODO.")
+        # Simple background-thread polling fallback. This uses the REST
+        # wrapper lazily (imported inside the function) to avoid circular
+        # imports during module import time.
+
+        if getattr(self, "_poll_thread", None) and getattr(self, "_poll_thread", None).is_alive():
+            # already running
+            return
+
+        # lazy import to avoid circular import at module import time
+        try:
+            from mylaps_client_wrapper import SpeedhiveClient  # type: ignore
+        except Exception:
+            # If the wrapper is not available, try the generated client directly
+            SpeedhiveClient = None  # type: ignore
+
+        # create REST client if possible
+        rest_client = None
+        if SpeedhiveClient is not None:
+            rest_client = SpeedhiveClient(token=self.token)
+
+        stop_event = threading.Event()
+        self._stop_event = stop_event
+
+        seen = set()
+
+        def poll_loop():
+            while not stop_event.is_set():
+                try:
+                    rows = []
+                    if rest_client is not None:
+                        rows = rest_client.get_laps(session_id=session_id)
+                    # rows may be None or not list
+                    if not rows:
+                        time.sleep(interval)
+                        continue
+
+                    new_rows = []
+                    for row in rows:
+                        # stable key similar to examples
+                        comp = row.get("competitorId") or row.get("id") or row.get("memberId")
+                        lapnum = row.get("lapNumber") or row.get("lap") or row.get("lap_num")
+                        key = (comp, lapnum)
+                        if key not in seen:
+                            seen.add(key)
+                            new_rows.append(row)
+
+                    for r in new_rows:
+                        try:
+                            callback(r)
+                        except Exception:
+                            # swallow callback errors to keep the poller alive
+                            pass
+
+                except Exception:
+                    # If polling fails, sleep and retry
+                    time.sleep(interval)
+                finally:
+                    # cooperative sleep to control interval
+                    time.sleep(interval)
+
+        thread = threading.Thread(target=poll_loop, name="LiveTimingClient-poller", daemon=True)
+        self._poll_thread = thread
+        thread.start()
+        self._connected = True
 
 
 __all__ = ["LiveTimingClient"]

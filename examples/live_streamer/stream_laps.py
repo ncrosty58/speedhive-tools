@@ -16,6 +16,10 @@ import time
 from typing import Any, Dict, Iterable, Set, Tuple
 
 from mylaps_client_wrapper import SpeedhiveClient
+try:
+    from mylaps_live_client import LiveTimingClient
+except Exception:
+    LiveTimingClient = None  # type: ignore
 
 
 def make_key(row: Dict[str, Any]) -> Tuple[Any, Any]:
@@ -68,10 +72,38 @@ def main() -> int:
     parser.add_argument("--session", "-s", type=int, required=True, help="Session id to stream")
     parser.add_argument("--token", "-t", default=None, help="API token (optional)")
     parser.add_argument("--interval", "-i", type=float, default=2.0, help="Poll interval in seconds")
+    parser.add_argument("--use-live-client", action="store_true", help="Use `LiveTimingClient` polling fallback (if available)")
     parser.add_argument("--json", dest="jsonl", action="store_true", help="Print rows as JSON lines (default)")
     args = parser.parse_args()
 
     client = SpeedhiveClient(token=args.token)
+
+    # Optionally use the LiveTimingClient polling fallback if requested
+    if args.use_live_client and LiveTimingClient is not None:
+        live = LiveTimingClient(token=args.token)
+
+        def cb(row: dict) -> None:
+            if args.jsonl:
+                print(json.dumps(row, ensure_ascii=False))
+            else:
+                comp = row.get("competitorId") or row.get("id")
+                lapnum = row.get("lapNumber") or row.get("lap")
+                laptime = row.get("lapTime") or row.get("lap_time")
+                print(f"Competitor={comp} lap={lapnum} time={laptime}")
+
+        print(f"Starting LiveTimingClient polling fallback for session {args.session} (interval {args.interval}s)")
+        live.start_polling_fallback(session_id=args.session, callback=cb, interval=args.interval)
+
+        try:
+            # block until interrupted
+            while True:
+                time.sleep(1.0)
+        except KeyboardInterrupt:
+            print("\nStopped by user")
+        finally:
+            live.close()
+
+        return 0
 
     print(f"Starting lap streamer for session {args.session} (interval {args.interval}s)")
     try:
