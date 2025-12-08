@@ -2,7 +2,7 @@
 
 Features:
 - Scan `output/full_dump/` for org IDs and let the user pick one (or `all`).
-- Run session/lap/announcement extractors and import to SQLite.
+- Run event/session/lap/announcement extractors and import to SQLite.
 - Non-interactive flags to run everything for a given org.
 
 Usage (interactive):
@@ -40,6 +40,7 @@ def run_script(script: Path, args: List[str]) -> int:
 def process_all(org_dir: Path, formats: List[str], data_types: List[str], do_sqlite: bool = True) -> None:
     # locate files
     files = {
+        "events": org_dir / "events.ndjson.gz",
         "laps": org_dir / "laps.ndjson.gz",
         "sessions": org_dir / "sessions.ndjson.gz",
         "announcements": org_dir / "announcements.ndjson.gz",
@@ -54,7 +55,10 @@ def process_all(org_dir: Path, formats: List[str], data_types: List[str], do_sql
 
         for fmt in formats:
             if fmt == "csv":
-                if dtype == "laps":
+                if dtype == "events":
+                    out = org_dir / "events_flat.csv"
+                    rc = run_script(scripts_dir / "extract_events_to_csv.py", ["--input", str(org_dir), "--out", str(out)])
+                elif dtype == "laps":
                     out = org_dir / "laps_flat.csv"
                     rc = run_script(scripts_dir / "extract_laps_to_csv.py", ["--input", str(org_dir), "--out", str(out)])
                 elif dtype == "sessions":
@@ -163,7 +167,7 @@ def interactive(output_root: Path, org: Optional[Path] = None, preset_formats: O
         return picks or opts
 
     def ask_data_types() -> List[str]:
-        opts = ["laps", "sessions", "announcements"]
+        opts = ["events", "laps", "sessions", "announcements"]
         print("Select data types to process (comma-separated):")
         for i, v in enumerate(opts, start=1):
             print(f"  {i}) {v}")
@@ -201,7 +205,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--run-all", action="store_true", help="Run all processing steps (laps/sessions/announcements/import)")
     p.add_argument("--no-sqlite", action="store_true", help="Skip SQLite import step")
     p.add_argument("--format", "-f", action="append", choices=["csv", "json", "ndjson", "sqlite", "db"], help="output format(s) to produce (can be specified multiple times)")
-    p.add_argument("--data", "-d", action="append", choices=["laps", "sessions", "announcements"], help="which data types to process (can be specified multiple times)")
+    p.add_argument("--data", "-d", action="append", choices=["events", "laps", "sessions", "announcements"], help="which data types to process (can be specified multiple times)")
     args = p.parse_args(argv)
 
     outroot = args.output_root
@@ -213,7 +217,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         # if user provided formats/data flags use them, otherwise prompt interactively for this org
         if args.format or args.data:
             formats = args.format or ["csv", "json", "ndjson"]
-            data_types = args.data or ["laps", "sessions", "announcements"]
+            data_types = args.data or ["events", "laps", "sessions", "announcements"]
             process_all(orgdir, formats=formats, data_types=data_types, do_sqlite=not args.no_sqlite)
         else:
             interactive(outroot, org=orgdir, preset_formats=None, preset_data_types=None, preset_no_sqlite=args.no_sqlite)
@@ -222,7 +226,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # no org specified on CLI -> decide interactive vs preset-driven
     if args.format or args.data or args.run_all:
         formats = args.format or ["csv", "json", "ndjson"]
-        data_types = args.data or ["laps", "sessions", "announcements"]
+        data_types = args.data or ["events", "laps", "sessions", "announcements"]
         if args.run_all:
             for d in find_org_dirs(outroot):
                 process_all(d, formats=formats, data_types=data_types, do_sqlite=not args.no_sqlite)

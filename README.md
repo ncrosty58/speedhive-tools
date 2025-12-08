@@ -65,11 +65,11 @@ python examples/processing/processor_cli.py
 | Command | Description |
 |---------|-------------|
 | `export_full_dump.py --org <id>` | Export all data (events, sessions, laps, announcements) |
-| `list_events_by_org.py <id>` | List events for an organization |
-| `export_announcements_by_org.py <id>` | Export announcements only |
-| `get_event_sessions.py <event_id>` | Get sessions for a specific event |
-| `get_session_laps.py <session_id>` | Get lap times for a session |
-| `get_session_results.py <session_id>` | Get results for a session |
+| `export_events.py <org_id>` | Export events for an organization |
+| `export_sessions.py <event_id>` | Export sessions for an event |
+| `export_laps.py <session_id>` | Export lap times for a session |
+| `export_results.py <session_id>` | Export results/classification for a session |
+| `export_announcements.py --org <id>` | Export announcements for an organization |
 
 ### Export Options
 
@@ -101,8 +101,9 @@ Convert exported NDJSON to analysis-ready formats:
 
 ```bash
 # Extract to CSV
-python examples/processing/extract_laps_to_csv.py --input <dir> --out laps.csv
+python examples/processing/extract_events_to_csv.py --input <dir> --out events.csv
 python examples/processing/extract_sessions_to_csv.py --input <dir> --out sessions.csv
+python examples/processing/extract_laps_to_csv.py --input <dir> --out laps.csv
 python examples/processing/extract_announcements_to_csv.py --input <dir> --out announcements.csv
 
 # Import to SQLite
@@ -212,17 +213,19 @@ For the full API specification, see the [MyLaps API Documentation](https://api2.
 ```
 speedhive-tools/
 ├── mylaps_client/          # Generated OpenAPI client (event_results_client)
+├── mylaps_client_wrapper.py # User-friendly API wrapper (SpeedhiveClient)
 ├── examples/
-│   ├── export_full_dump.py          # Main exporter
-│   ├── list_events_by_org.py        # List org events
-│   ├── export_announcements_by_org.py
-│   ├── get_event_sessions.py
-│   ├── get_session_laps.py
-│   ├── get_session_results.py
+│   ├── export_full_dump.py          # Bulk exporter (all data for org)
+│   ├── export_events.py             # Export events for an org
+│   ├── export_sessions.py           # Export sessions for an event
+│   ├── export_laps.py               # Export laps for a session
+│   ├── export_results.py            # Export results for a session
+│   ├── export_announcements.py      # Export announcements
 │   └── processing/
 │       ├── processor_cli.py         # Interactive processor
-│       ├── extract_laps_to_csv.py
+│       ├── extract_events_to_csv.py
 │       ├── extract_sessions_to_csv.py
+│       ├── extract_laps_to_csv.py
 │       ├── extract_announcements_to_csv.py
 │       └── ndjson_to_sqlite.py
 ├── tests/                  # Unit tests
