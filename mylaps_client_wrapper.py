@@ -434,15 +434,33 @@ class SpeedhiveClient:
                     if match:
                         lap_time_str = match.group(1)
                         class_name = match.group(2)
-                        driver_name = match.group(3).strip()
-                        
+                        driver_block = match.group(3).strip()
+
+                        # Skip ambiguous / provisional announcements
+                        low = text.lower()
+                        if "to be confirmed" in low or "to be confirmed on" in low or "not a track record" in low or "not a class record" in low:
+                            continue
+
+                        # Some announcements include the car/marque after the driver, e.g.
+                        # "[2] Kevin Fandozzi in Chevrolet C5 Corvette" or
+                        # "Alejandro Dellatorre in 1984 SRF Enterprises". Extract marque when present.
+                        marque = None
+                        m = re.search(r"^(.+?)\s+in\s+(.+)$", driver_block, flags=re.IGNORECASE)
+                        if m:
+                            driver_name = m.group(1).strip()
+                            marque = m.group(2).strip().rstrip('.')
+                        else:
+                            driver_name = driver_block
+                        # Remove leading competitor index like "[25] " if present
+                        driver_name = re.sub(r"^\s*\[\s*\d+\s*\]\s*", "", driver_name)
+
                         # Filter by classification if requested
                         if classification and class_name.upper() != classification.upper():
                             continue
-                        
+
                         # Convert lap time to seconds for sorting
                         lap_seconds = self._parse_lap_time(lap_time_str)
-                        
+
                         records.append({
                             "event_id": event_id,
                             "event_name": event_name,
@@ -452,6 +470,7 @@ class SpeedhiveClient:
                             "lap_time": lap_time_str,
                             "lap_time_seconds": lap_seconds,
                             "driver": driver_name,
+                            "marque": marque,
                             "timestamp": timestamp,
                             "text": text,
                         })
@@ -512,7 +531,7 @@ class SpeedhiveClient:
             ...     print(f"{record['classification']}: {record['lap_time']}")
         """
         pattern = re.compile(
-            r"New Track Record\s*\(([0-9:.]+)\)\s*for\s+([^\s]+)\s+by\s+(.+?)\.?$",
+            r"New (?:Track|Class) Record\s*\(([0-9:.]+)\)\s*for\s+([^\s]+)\s+by\s+(.+?)\.?$",
             re.IGNORECASE
         )
 
@@ -548,13 +567,28 @@ class SpeedhiveClient:
                     if match:
                         lap_time_str = match.group(1)
                         class_name = match.group(2)
-                        driver_name = match.group(3).strip()
-                        
+                        driver_block = match.group(3).strip()
+
+                        # Skip ambiguous / provisional announcements
+                        low = text.lower()
+                        if "to be confirmed" in low or "to be confirmed on" in low or "not a track record" in low or "not a class record" in low:
+                            continue
+
+                        marque = None
+                        m = re.search(r"^(.+?)\s+in\s+(.+)$", driver_block, flags=re.IGNORECASE)
+                        if m:
+                            driver_name = m.group(1).strip()
+                            marque = m.group(2).strip().rstrip('.')
+                        else:
+                            driver_name = driver_block
+                        # Remove leading competitor index like "[25] " if present
+                        driver_name = re.sub(r"^\s*\[\s*\d+\s*\]\s*", "", driver_name)
+
                         if classification and class_name.upper() != classification.upper():
                             continue
-                        
+
                         lap_seconds = self._parse_lap_time(lap_time_str)
-                        
+
                         yield {
                             "event_id": event_id,
                             "event_name": event_name,
@@ -564,6 +598,7 @@ class SpeedhiveClient:
                             "lap_time": lap_time_str,
                             "lap_time_seconds": lap_seconds,
                             "driver": driver_name,
+                            "marque": marque,
                             "timestamp": timestamp,
                             "text": text,
                         }
