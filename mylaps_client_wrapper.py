@@ -30,6 +30,7 @@ from event_results_client.api.system_time_controller import get_time as time_api
 from event_results_client.models.time import Time as TimeModel
 from event_results_client.api.organization_controller import get_event_list, get_organization, get_championship_list
 from event_results_client.api.event_controller import get_event, get_session_list
+# Note: we intentionally do not include realtime discovery helpers here.
 from event_results_client.api.session_controller import (
     get_all_lap_times,
     get_classification,
@@ -38,6 +39,14 @@ from event_results_client.api.session_controller import (
     get_lap_chart,
 )
 from event_results_client.api.championship_controller import get_championship
+
+# NOTE: live-timing realtime protocol is currently separate from the REST
+# API. We provide a stubbed `LiveTimingClient` in `mylaps_live_client.py`
+# as a placeholder for future realtime/WebSocket/SSE support.
+try:
+    from mylaps_live_client import LiveTimingClient  # type: ignore
+except Exception:
+    LiveTimingClient = None  # type: ignore
 
 
 @dataclass
@@ -349,6 +358,12 @@ class SpeedhiveClient:
         """
         result = time_api.sync(client=self._client)
         return result
+
+    # Note: realtime discovery helpers have been intentionally removed.
+    # Use `mylaps_live_client.LiveTimingClient` (stub) for future realtime
+    # implementations via WebSocket/SSE. For now, the REST wrapper provides
+    # synchronous accessors such as `get_laps`, `get_announcements`, and
+    # `get_event` that are suitable for polling-based implementations.
 
 
 # ---------------------------------------------------------------------------
