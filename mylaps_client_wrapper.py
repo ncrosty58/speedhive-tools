@@ -23,10 +23,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, cast
 
 from event_results_client import Client, AuthenticatedClient
 from event_results_client.api.system_time_controller import get_time as time_api
+from event_results_client.models.time import Time as TimeModel
 from event_results_client.api.organization_controller import get_event_list, get_organization, get_championship_list
 from event_results_client.api.event_controller import get_event, get_session_list
 from event_results_client.api.session_controller import (
@@ -57,19 +58,19 @@ class SpeedhiveClient:
     base_url: str = "https://api2.mylaps.com"
     token: Optional[str] = None
     timeout: float = 30.0
-    _client: Client = field(init=False, repr=False)
+    _client: Client | AuthenticatedClient = field(init=False, repr=False)
 
     def __post_init__(self):
         if self.token:
             self._client = AuthenticatedClient(
                 base_url=self.base_url,
                 token=self.token,
-                timeout=self.timeout,
+                timeout=cast(Any, self.timeout),
             )
         else:
             self._client = Client(
                 base_url=self.base_url,
-                timeout=self.timeout,
+                timeout=cast(Any, self.timeout),
             )
 
     def _parse_response(self, response) -> Any:
@@ -340,11 +341,11 @@ class SpeedhiveClient:
     # Utility endpoints
     # -------------------------------------------------------------------------
 
-    def get_server_time(self) -> Optional[str]:
+    def get_server_time(self) -> Optional[TimeModel]:
         """Get current server time.
 
         Returns:
-            Server time string or None
+            Server time model or None
         """
         result = time_api.sync(client=self._client)
         return result
