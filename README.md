@@ -70,6 +70,9 @@ python examples/processing/processor_cli.py
 | `export_laps.py <session_id>` | Export lap times for a session |
 | `export_results.py <session_id>` | Export results/classification for a session |
 | `export_announcements.py --org <id>` | Export announcements for an organization |
+| `export_championships.py --org <id>` | Export championships for an organization |
+| `export_championships.py --championship <id>` | Export championship standings |
+| `export_lap_chart.py <session_id>` | Export lap chart data for visualizations |
 
 ### Export Options
 
@@ -224,6 +227,8 @@ speedhive-tools/
 │   ├── export_laps.py               # Export laps for a session
 │   ├── export_results.py            # Export results for a session
 │   ├── export_announcements.py      # Export announcements
+│   ├── export_championships.py      # Export championships/standings
+│   ├── export_lap_chart.py          # Export lap chart data
 │   └── processing/
 │       ├── processor_cli.py         # Interactive processor
 │       ├── extract_events_to_csv.py
