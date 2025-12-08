@@ -31,6 +31,7 @@ def export_csv(records, output_path: Path):
     fieldnames = [
         "classification",
         "lap_time",
+        "marque",
         "lap_time_seconds",
         "driver",
         "event_id",

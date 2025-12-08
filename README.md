@@ -212,7 +212,7 @@ for event in client.iter_events(org_id=30476):
 
 ### Track Records
 
-Track records are extracted from session announcements. The API efficiently scans events to find "New Track Record" announcements:
+Track records are extracted from session announcements. The API efficiently scans events to find "New Track Record" announcements. Records now include an optional `marque` field (car make/model) when present in the announcement, and driver names are normalized (leading bracketed competitor numbers such as "[25]" are removed).
 
 ```python
 client = SpeedhiveClient()

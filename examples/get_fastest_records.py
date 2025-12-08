@@ -43,6 +43,8 @@ def main(argv=None):
             print(f"Fastest {record['classification']} Track Record:")
             print(f"  Time: {record['lap_time']}")
             print(f"  Driver: {record['driver']}")
+            if record.get("marque"):
+                print(f"  Marque: {record.get('marque')}")
             print(f"  Event: {record['event_name']}")
             print(f"  Session: {record['session_name']}")
             print(f"  Date: {record['timestamp']}")
@@ -75,7 +77,8 @@ def main(argv=None):
         
         for class_name in sorted(fastest_by_class.keys()):
             record = fastest_by_class[class_name]
-            print(f"{class_name:10s} {record['lap_time']:>10s}  {record['driver']:30s}  {record['event_name'][:40]}")
+            marque = record.get("marque") or ""
+            print(f"{class_name:10s} {record['lap_time']:>10s}  {record['driver']:30s}  {marque:15s}  {record['event_name'][:40]}")
     
     return 0
 
