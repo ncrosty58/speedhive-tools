@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 """Live lap streamer example.
 
-Simple example that polls a live session's lap data and prints new lap rows
-as they arrive. Useful as a reference for building a backend poller that
-pushes updates to a UI (WebSocket/SSE) or for quick local testing.
+Simple example that polls a session's lap data and prints new lap rows as
+they arrive. This example uses the REST API via `SpeedhiveClient` and is a
+safe polling-based reference until an official realtime API is available.
 
 Usage:
   python examples/live_streamer/stream_laps.py --session 12345 --token $MYTOKEN
-
-This script uses the `SpeedhiveClient` wrapper from the project to fetch
-lap rows (which the wrapper flattens into a list of dicts). By default it
-polls every 2.0 seconds and prints new rows as JSON lines.
 """
 from __future__ import annotations
 
@@ -32,7 +28,6 @@ def make_key(row: Dict[str, Any]) -> Tuple[Any, Any]:
     lapnum = row.get("lapNumber") or row.get("lap") or row.get("lap_num")
     if comp is not None and lapnum is not None:
         return (comp, lapnum)
-    # fallback: use timestamp + stringified row hash
     ts = row.get("time") or row.get("timestamp") or row.get("lapTime")
     return (comp, ts)
 
@@ -40,15 +35,15 @@ def make_key(row: Dict[str, Any]) -> Tuple[Any, Any]:
 def poll_session_laps(client: SpeedhiveClient, session_id: int, interval: float = 2.0) -> Iterable[Dict[str, Any]]:
     """Generator that polls the session and yields new lap rows.
 
-    This is a simple polling implementation: it keeps a set of seen keys
-    and yields rows whose key was not previously observed.
+    This keeps a set of seen keys and yields rows whose key was not previously
+    observed. It's intentionally simple and suitable as an example fallback
+    until a realtime API is adopted.
     """
     seen: Set[Tuple[Any, Any]] = set()
     while True:
         try:
             laps = client.get_laps(session_id=session_id)
             if not laps:
-                # no rows yet
                 time.sleep(interval)
                 continue
 
@@ -84,7 +79,6 @@ def main() -> int:
             if args.jsonl:
                 print(json.dumps(row, ensure_ascii=False))
             else:
-                # human-friendly summary
                 comp = row.get("competitorId") or row.get("id")
                 lapnum = row.get("lapNumber") or row.get("lap")
                 laptime = row.get("lapTime") or row.get("lap_time")
