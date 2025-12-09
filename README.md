@@ -8,10 +8,6 @@ Command-line toolkit and client wrapper for the MyLaps Event Results API (export
 
 **This README covers:** the unified `speedhive` CLI, how discovery and module registration work, the `SpeedhiveClient` wrapper, example scripts (in `examples/`), and how to run tests.
 
-Command-line toolkit and client wrapper for the MyLaps Event Results API (export, process, analyze).
-
-**This README covers:** the unified `speedhive` CLI, how discovery and module registration work, the `SpeedhiveClient` wrapper, example scripts (in `examples/`), and how to run tests.
-
 ## Highlights
 
 - Export events, sessions, laps, and announcements to gzipped NDJSON
