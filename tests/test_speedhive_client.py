@@ -137,11 +137,3 @@ class TestExtractEventsToCSV:
         assert "def main(" in src
 
 
-class TestProcessorCLI:
-    """Test that processor_cli supports events."""
-
-    def test_processor_cli_supports_events(self):
-        p = Path("examples/processing/processor_cli.py")
-        src = p.read_text(encoding="utf8")
-        assert '"events"' in src, "processor_cli should support events data type"
-        assert "extract_events_to_csv.py" in src, "processor_cli should reference events extractor"

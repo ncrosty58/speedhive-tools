@@ -52,17 +52,19 @@ python examples/processing/extract_laps_to_csv.py \
     --out output/full_dump/30476/laps.csv
 ```
 
-### 3. Or Use the Interactive CLI
+### 3. Or Use the Unified CLI
 
 ```bash
-python examples/processing/processor_cli.py
+speedhive export-full-dump --org 30476
+speedhive process-full-dump --org 30476
+speedhive report-consistency --org 30476
 ```
 
 ## Offline workflow
 
 This project supports a simple offline workflow that lets you reproduce analytics from a canonical full dump without contacting the API during analysis.
 
-- **Export (one-time / repeatable):** `examples/export_full_dump.py` writes NDJSON files under `output/full_dump/<org>/`. The exporter now includes session classification/results in `results.ndjson` when the API supports it.
+- **Export (one-time / repeatable):** `speedhive export-full-dump` writes NDJSON files under `output/full_dump/<org>/`. The exporter now includes session classification/results in `results.ndjson` when the API supports it.
 
     ```bash
     python3 examples/export_full_dump.py --org 30476 --output ./output/full_dump --verbose --no-resume
@@ -145,16 +147,22 @@ python examples/processing/extract_announcements_to_csv.py --input <dir> --out a
 python examples/processing/ndjson_to_sqlite.py --input <dir>/laps.ndjson.gz --out dump.db
 ```
 
-### Processor CLI
+### Unified CLI
 
-Interactive mode for batch processing:
+The `speedhive` command provides a unified interface for all common operations:
 
 ```bash
-# Interactive - prompts for org and output options
-python examples/processing/processor_cli.py
+# Export data
+speedhive export-full-dump --org 30476
 
-# Non-interactive - process all data types
-python examples/processing/processor_cli.py --org 30476 --run-all
+# Process data
+speedhive process-full-dump --org 30476
+
+# Analyze consistency
+speedhive report-consistency --org 30476
+
+# Extract driver data
+speedhive extract-driver-laps --org 30476 --driver "Nathan Crosty"
 ```
 
 ## Using the Client Library
@@ -291,20 +299,25 @@ For the full API specification, see the [MyLaps API Documentation](https://api2.
 
 ```
 speedhive-tools/
-├── mylaps_client/          # Generated OpenAPI client (event_results_client)
+├── speedhive_tools/         # Main package
+│   ├── cli.py               # Unified CLI entry point
+│   ├── exporters/           # Data export modules
+│   │   ├── export_full_dump.py
+│   │   ├── export_events.py
+│   │   └── ... (9 export modules)
+│   ├── processors/          # Data processing modules
+│   │   ├── process_full_dump.py
+│   │   ├── extract_laps_to_csv.py
+│   │   └── ... (7 processing modules)
+│   ├── analyzers/           # Analysis & reporting modules
+│   │   ├── driver_laps.py
+│   │   ├── report_consistency.py
+│   │   └── ... (5 analysis modules)
+│   └── utils/               # Shared utilities
+│       └── common.py
+├── mylaps_client/           # Generated OpenAPI client (event_results_client)
 ├── mylaps_client_wrapper.py # User-friendly API wrapper (SpeedhiveClient)
-├── examples/
-│   ├── export_full_dump.py          # Bulk exporter (all data for org)
-│   ├── export_events.py             # Export events for an org
-│   ├── export_sessions.py           # Export sessions for an event
-│   ├── export_laps.py               # Export laps for a session
-│   ├── export_results.py            # Export results for a session
-│   ├── export_announcements.py      # Export announcements
-│   ├── export_championships.py      # Export championships/standings
-│   ├── export_lap_chart.py          # Export lap chart data
-│   └── processing/
-│       ├── processor_cli.py         # Interactive processor
-│       ├── extract_events_to_csv.py
+```
 │       ├── extract_sessions_to_csv.py
 │       ├── extract_laps_to_csv.py
 │       ├── extract_announcements_to_csv.py
