@@ -205,20 +205,34 @@ def process_org(dump_dir: Path, out_dir: Path, org_id: int) -> None:
             continue
         pos_map = session_pos_map.get(sid, {})
         for row in rows:
-            # attempt to find lap time in several fields
+            # Many lap payloads are per-competitor objects with a `laps` list.
+            # If so, iterate nested laps and use the parent row for driver mapping.
+            if isinstance(row.get("laps"), list):
+                parent = row
+                for lap in row.get("laps", []):
+                    t = None
+                    # Prefer lapTime fields from nested lap objects
+                    for tf in ("lapTime", "lap_time", "time", "lapSeconds", "seconds"):
+                        if tf in lap:
+                            t = parse_time_value(lap.get(tf))
+                            if t is not None:
+                                break
+                    if t is None:
+                        # ignore fields like timeOfDay (epoch) to avoid false positives
+                        continue
+                    key = assign_row_to_key(sid, parent, pos_map)
+                    laps_by_driver[key].append(t)
+                continue
+
+            # Otherwise, row itself may be a flat lap record
             t = None
             for tf in ("lapTime", "lap_time", "time", "lapSeconds", "seconds"):
                 if tf in row:
                     t = parse_time_value(row.get(tf))
                     if t is not None:
                         break
-            # fallback: try all string/int values
             if t is None:
-                for v in row.values():
-                    t = parse_time_value(v)
-                    if t is not None:
-                        break
-            if t is None:
+                # no clear lap time field found; skip this row
                 continue
             key = assign_row_to_key(sid, row, pos_map)
             laps_by_driver[key].append(t)
