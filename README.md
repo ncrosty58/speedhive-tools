@@ -58,6 +58,36 @@ python examples/processing/extract_laps_to_csv.py \
 python examples/processing/processor_cli.py
 ```
 
+## Offline workflow
+
+This project supports a simple offline workflow that lets you reproduce analytics from a canonical full dump without contacting the API during analysis.
+
+- **Export (one-time / repeatable):** `examples/export_full_dump.py` writes NDJSON files under `output/full_dump/<org>/`. The exporter now includes session classification/results in `results.ndjson` when the API supports it.
+
+    ```bash
+    python3 examples/export_full_dump.py --org 30476 --output ./output/full_dump --verbose --no-resume
+    ```
+
+- **Process (offline):** `examples/process_full_dump.py` reads the dump directory and produces analysis-ready JSON files in `output/`:
+    - `output/laps_by_driver_<org>.json` — mapping driver keys (`session<id>_pos<n>`) to lap-time lists
+    - `output/consistency_<org>_enriched.json` — per-driver aggregated stats with `name` populated from `results.ndjson` when available
+
+    ```bash
+    python3 examples/process_full_dump.py --org 30476 --dump-dir output/full_dump --out-dir output
+    ```
+
+- **Report (offline):** Example scripts under `examples/fun` (e.g. `report_driver_consistency.py`) read the `output/` artifacts above and run without API access.
+
+    ```bash
+    python3 examples/fun/report_driver_consistency.py --name "Nathan Crosty" --org 30476
+    ```
+
+Notes and tips:
+- The authoritative analysis files live under `output/` — prefer `output/consistency_<org>_enriched.json` and `output/laps_by_driver_<org>.json` for downstream reporting.
+- Avoid keeping old copies of generated files at the repository root (e.g. `./consistency_<org>_enriched.json`) — they can be stale. Remove them to prevent confusion.
+- To force the exporter to re-fetch session results, run it with `--no-resume` so checkpoints are cleared and `results.ndjson` is repopulated.
+
+
 ## Usage
 
 ### Export Commands
