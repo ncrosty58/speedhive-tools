@@ -98,5 +98,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     return 0
 
 
+def fetch_lap_chart_for_session(client: SpeedhiveClient, session_id: int):
+    """Return lap chart data for a session (used by orchestrator)."""
+    return client.get_lap_chart(session_id=session_id)
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

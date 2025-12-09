@@ -33,6 +33,18 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "mylaps_client"))
 
 from event_results_client import Client, AuthenticatedClient
+# Also import the sync Speedhive wrapper and exporter modules if available
+try:
+    sys.path.insert(0, str(REPO_ROOT))
+    sys.path.insert(0, str(REPO_ROOT / "mylaps_client"))
+    from mylaps_client_wrapper import SpeedhiveClient
+except Exception:
+    SpeedhiveClient = None
+
+try:
+    from speedhive_tools.exporters import export_events, export_sessions, export_laps, export_announcements, export_results
+except Exception:
+    export_events = export_sessions = export_laps = export_announcements = export_results = None
 
 # Some generated client versions may not expose every endpoint path we try to use.
 # Import endpoint callables in try/except blocks so the module can be imported
@@ -133,7 +145,7 @@ def ndjson_writer(path: Path, compress: bool = True):
     return fh, write
 
 
-async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool = False, concurrency: int = 3, compress: bool = True, max_events: Optional[int] = None, max_sessions_per_event: Optional[int] = None, dry_run: bool = False, show_progress: bool = True, resume: bool = True, checkpoint_arg: Optional[Path] = None) -> None:
+async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool = False, concurrency: int = 3, compress: bool = True, max_events: Optional[int] = None, max_sessions_per_event: Optional[int] = None, dry_run: bool = False, show_progress: bool = True, resume: bool = True, checkpoint_arg: Optional[Path] = None, token: Optional[str] = None) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Check availability of endpoint helper callables and decide what we can do.
@@ -161,12 +173,25 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
     if not HAVE_LAP_ROWS and verbose:
         print("[WARN] lap rows endpoint missing in generated client; exporter will skip lap rows")
 
-    events_resp = await get_events(org_id, client=client)
-    if verbose:
-        print(f"[DEBUG] events request status={getattr(events_resp,'status_code',None)} size={len(events_resp.content) if getattr(events_resp,'content',None) else 0}")
-    events_payload = safe_load_json(getattr(events_resp, "content", None)) or []
-    if max_events is not None:
-        events_payload = events_payload[:max_events]
+    # Prefer specialized exporter fetchers when available (they use the sync
+    # `mylaps_client_wrapper` client). We run them in a thread to avoid
+    # blocking the async runtime. Fall back to generated async client endpoints.
+    events_payload = []
+    import asyncio
+    if export_events and getattr(export_events, "fetch_events_for_org", None) and SpeedhiveClient is not None:
+        # Use sync wrapper in a thread
+        sync_client = SpeedhiveClient(token=getattr(client, 'token', None) if hasattr(client, 'token') else None)
+        try:
+            events_payload = await asyncio.to_thread(export_events.fetch_events_for_org, sync_client, org_id, max_events)
+        except Exception:
+            events_payload = []
+    else:
+        events_resp = await get_events(org_id, client=client)
+        if verbose:
+            print(f"[DEBUG] events request status={getattr(events_resp,'status_code',None)} size={len(events_resp.content) if getattr(events_resp,'content',None) else 0}")
+        events_payload = safe_load_json(getattr(events_resp, "content", None)) or []
+        if max_events is not None:
+            events_payload = events_payload[:max_events]
 
     total_events = len(events_payload)
     events_start = time.monotonic()
@@ -230,6 +255,13 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
     import asyncio
 
     sem = asyncio.Semaphore(concurrency)
+    # Build a synchronous wrapper client for exporter modules (if available).
+    sync_client = None
+    if SpeedhiveClient is not None:
+        try:
+            sync_client = SpeedhiveClient(token=token)
+        except Exception:
+            sync_client = None
 
     async def fetch_and_write_for_event(ev: dict, event_index: int) -> None:
         ev_id = ev.get("id")
@@ -251,18 +283,27 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
         if show_progress:
             print(f"[PROGRESS] Event {event_index}/{total_events}: id={ev_id} name={ev_name}")
 
-        async with sem:
-            sresp = await get_sessions(ev_id, client=client)
-        sess_payload = safe_load_json(getattr(sresp, "content", None)) or []
+        # Fetch sessions for this event. Prefer the specialised exporter fetcher
+        # when available and we have a sync client; otherwise use async endpoint.
         raw_sessions: List[dict] = []
-        if isinstance(sess_payload, list):
-            raw_sessions = list(sess_payload)
-        elif isinstance(sess_payload, dict):
-            if isinstance(sess_payload.get("sessions"), list):
-                raw_sessions.extend(sess_payload.get("sessions", []))
-            for g in sess_payload.get("groups", []):
-                for s_item in g.get("sessions", []) if isinstance(g.get("sessions"), list) else []:
-                    raw_sessions.append(s_item)
+        if export_sessions and getattr(export_sessions, "fetch_sessions_for_event", None) and sync_client is not None:
+            try:
+                import asyncio
+                raw_sessions = await asyncio.to_thread(export_sessions.fetch_sessions_for_event, sync_client, ev_id)
+            except Exception:
+                raw_sessions = []
+        else:
+            async with sem:
+                sresp = await get_sessions(ev_id, client=client)
+            sess_payload = safe_load_json(getattr(sresp, "content", None)) or []
+            if isinstance(sess_payload, list):
+                raw_sessions = list(sess_payload)
+            elif isinstance(sess_payload, dict):
+                if isinstance(sess_payload.get("sessions"), list):
+                    raw_sessions.extend(sess_payload.get("sessions", []))
+                for g in sess_payload.get("groups", []):
+                    for s_item in g.get("sessions", []) if isinstance(g.get("sessions"), list) else []:
+                        raw_sessions.append(s_item)
 
         # optionally limit sessions per event for low-RAM / testing
         if max_sessions_per_event is not None:
@@ -300,7 +341,17 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
                 session_start_time = time.monotonic()
             t0 = time.monotonic()
             # announcements (optional)
-            if HAVE_ANNOUNCEMENTS and get_announcements is not None:
+            # announcements (optional) - prefer sync exporter or sync client if present
+            if sync_client is not None:
+                try:
+                    import asyncio
+                    anns = await asyncio.to_thread(sync_client.get_announcements, session_id=sid)
+                    if anns:
+                        anns_write({**base_event, "session_id": sid, "announcements": anns})
+                except Exception:
+                    if verbose:
+                        print(f"[DEBUG] skipping announcements for session {sid} (sync fetch failed)")
+            elif HAVE_ANNOUNCEMENTS and get_announcements is not None:
                 async with sem:
                     aresp = await get_announcements(sid, client=client)
                 a_payload = safe_load_json(getattr(aresp, "content", None))
@@ -311,12 +362,23 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
                     print(f"[DEBUG] skipping announcements for session {sid} (endpoint missing)")
 
             # session classification / results (optional)
-            if HAVE_CLASSIFICATION and get_classification_for_session_async is not None:
+            # classification/results - prefer exporter fetcher via thread
+            if export_results and getattr(export_results, "fetch_results_for_session", None) and sync_client is not None:
+                try:
+                    import asyncio
+                    res = await asyncio.to_thread(export_results.fetch_results_for_session, sync_client, sid)
+                    if res:
+                        # normalize potential wrappers
+                        rows = res if isinstance(res, list) else (res.get("rows") or res.get("results") or [])
+                        results_write({**base_event, "session_id": sid, "results": rows})
+                except Exception:
+                    if verbose:
+                        print(f"[DEBUG] skipping session results for session {sid} (sync fetch failed)")
+            elif HAVE_CLASSIFICATION and get_classification_for_session_async is not None:
                 async with sem:
                     cresp = await get_classification_for_session_async(sid, client=client)
                 c_payload = safe_load_json(getattr(cresp, "content", None))
                 if c_payload:
-                    # normalize potential wrappers
                     rows = []
                     if isinstance(c_payload, dict) and isinstance(c_payload.get("rows"), list):
                         rows = c_payload.get("rows", [])
@@ -329,12 +391,22 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
 
             # lap rows
             # lap rows (optional)
-            if HAVE_LAP_ROWS and get_lap_rows is not None:
+            # lap rows - prefer exporter fetcher via thread
+            if export_laps and getattr(export_laps, "fetch_laps_for_session", None) and sync_client is not None:
+                try:
+                    import asyncio
+                    lrows = await asyncio.to_thread(export_laps.fetch_laps_for_session, sync_client, sid)
+                    if lrows:
+                        rows = lrows if isinstance(lrows, list) else (lrows.get("rows") or lrows)
+                        laps_write({**base_event, "session_id": sid, "rows_count": len(rows), "rows": rows})
+                except Exception:
+                    if verbose:
+                        print(f"[DEBUG] skipping lap rows for session {sid} (sync fetch failed)")
+            elif HAVE_LAP_ROWS and get_lap_rows is not None:
                 async with sem:
                     lresp = await get_lap_rows(sid, client=client)
                 l_payload = safe_load_json(getattr(lresp, "content", None))
                 if l_payload:
-                    # normalize rows if wrapped
                     rows = []
                     if isinstance(l_payload, dict) and isinstance(l_payload.get("rows"), list):
                         rows = l_payload.get("rows", [])
@@ -385,6 +457,9 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
         _log(f"[INFO] finished event {ev_id}")
 
     # Process events sequentially to keep memory low; you can increase concurrency if you have more RAM
+    # If we fetched events via the sync exporter functions, events_payload may
+    # already be a list of event dicts. Otherwise it's the result of the async
+    # call and we treat it the same. Iterate and process each event.
     for idx, ev in enumerate(events_payload, start=1):
         await fetch_and_write_for_event(ev, idx)
 
@@ -400,7 +475,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Export a full dump for provided organization ids")
     parser.add_argument("--org", type=int, action="append", help="Organization id (can be repeated)")
     parser.add_argument("--org-file", type=Path, help="Path to newline-separated file containing org ids")
-    parser.add_argument("--output", type=Path, default=Path("output/full_dump"), help="Output directory")
+    parser.add_argument("--output", type=Path, default=Path("output"), help="Output directory")
     parser.add_argument("--token", help="API token", default=None)
     parser.add_argument("--concurrency", "-c", type=int, default=2, help="Max concurrent requests (small default for low RAM)")
     parser.add_argument("--no-compress", dest="compress", action="store_false", help="Do not gzip output files")
@@ -453,6 +528,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     show_progress=not getattr(args, "no_progress", False),
                     resume=not args.no_resume,
                     checkpoint_arg=args.checkpoint,
+                    token=args.token,
                 )
 
     asyncio.run(_run())
@@ -461,3 +537,24 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def register_subparser(parser: argparse.ArgumentParser) -> None:
+    """Register argparse options for integration with the top-level CLI.
+
+    This mirrors the options from `main()` so the top-level help can show
+    module-specific flags when the module is discovered and registered.
+    """
+    parser.add_argument("--org", type=int, action="append", help="Organization id (can be repeated)")
+    parser.add_argument("--org-file", type=Path, help="Path to newline-separated file containing org ids")
+    parser.add_argument("--output", type=Path, default=Path("output"), help="Output directory")
+    parser.add_argument("--token", help="API token", default=None)
+    parser.add_argument("--concurrency", "-c", type=int, default=2, help="Max concurrent requests (small default for low RAM)")
+    parser.add_argument("--no-compress", dest="compress", action="store_false", help="Do not gzip output files")
+    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--max-events", type=int, default=None, help="Limit to N events (for testing)")
+    parser.add_argument("--max-sessions-per-event", type=int, default=None, help="Limit sessions per event (for testing)")
+    parser.add_argument("--dry-run", action="store_true", help="Don't fetch announcements/laps; just list counts and exit")
+    parser.add_argument("--no-progress", action="store_true", help="Disable progress printing")
+    parser.add_argument("--checkpoint", type=Path, default=None, help="Path to checkpoint file (default: outdir/.checkpoint.json)")
+    parser.add_argument("--no-resume", action="store_true", help="Do not resume from existing checkpoint; start fresh")

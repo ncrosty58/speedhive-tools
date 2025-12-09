@@ -151,5 +151,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         return export_championships_list(client, args.org, args.output, args.format, args.verbose)
 
 
+def fetch_championships_for_org(client: SpeedhiveClient, org_id: int):
+    """Return list of championships for an organization (used by orchestrator)."""
+    return client.get_championships(org_id=org_id)
+
+
+def fetch_championship_standings(client: SpeedhiveClient, championship_id: int):
+    """Return standings for a championship (used by orchestrator)."""
+    return client.get_championship(championship_id=championship_id)
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

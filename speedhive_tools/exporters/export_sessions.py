@@ -80,5 +80,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     return 0
 
 
+def fetch_sessions_for_event(client: SpeedhiveClient, event_id: int):
+    """Return list of sessions for an event (used by export_full_dump orchestration)."""
+    return client.get_sessions(event_id=event_id)
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

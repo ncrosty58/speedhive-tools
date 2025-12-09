@@ -26,7 +26,7 @@ from pathlib import Path
 from statistics import mean, median, stdev
 from typing import Any, Dict, List
 import difflib
-from speedhive_tools.utils.common import open_ndjson, extract_iso_date, load_session_map, normalize_name
+from speedhive_tools.utils.common import open_ndjson, extract_iso_date, load_session_map, normalize_name, compute_laps_and_enriched
 
 
 def is_race_session(session_raw: Dict) -> bool:
@@ -45,20 +45,9 @@ def is_race_session(session_raw: Dict) -> bool:
     return False
 
 
-def load_enriched(out_dir: Path, org: int) -> Dict[str, Dict]:
-    p = out_dir / f"consistency_{org}_enriched.json"
-    if not p.exists():
-        raise SystemExit(f"Enriched file {p} not found; run process_full_dump first")
-    with open(p, "r", encoding="utf8") as fh:
-        return json.load(fh)
-
-
-def load_laps_by_driver(out_dir: Path, org: int) -> Dict[str, List[float]]:
-    p = out_dir / f"laps_by_driver_{org}.json"
-    if not p.exists():
-        raise SystemExit(f"laps_by_driver file {p} not found; run process_full_dump first")
-    with open(p, "r", encoding="utf8") as fh:
-        return json.load(fh)
+# Deprecated on-disk artifacts `laps_by_driver` and `consistency_*_enriched.json`
+# were previously created by `process_full_dump`. We now compute those maps
+# on-demand from the raw export located under `dump_dir/<org>`.
 
 
 def gather_driver_keys(enriched: Dict[str, Dict], query: str, threshold: float = 0.85) -> List[str]:
@@ -127,7 +116,7 @@ def main(argv=None) -> int:
     p.add_argument("--org", type=int, required=True)
     p.add_argument("--driver", "--name", dest="driver", required=True)
     p.add_argument("--driver-keys", type=str, default=None, help="Comma-separated driver_key values to extract (skip fuzzy matching)")
-    p.add_argument("--dump-dir", type=Path, default=Path("output/full_dump"))
+    p.add_argument("--dump-dir", type=Path, default=Path("output"))
     p.add_argument("--out-dir", type=Path, default=Path("output"))
     p.add_argument("--threshold", type=float, default=0.85)
     p.add_argument("--min-laps", type=int, default=0, help="Minimum lap count for candidate drivers (uses laps_index if available)")
@@ -138,8 +127,8 @@ def main(argv=None) -> int:
     dump_dir = args.dump_dir
     out_dir = args.out_dir
 
-    enriched = load_enriched(out_dir, org)
-    laps_map = load_laps_by_driver(out_dir, org)
+    # Compute laps_by_driver and enriched maps on-demand from the raw dump
+    laps_map, enriched = compute_laps_and_enriched(dump_dir, org)
     session_map = load_session_map(dump_dir, org)
 
     # Optionally load index to pre-filter candidates quickly

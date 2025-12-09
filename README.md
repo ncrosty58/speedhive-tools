@@ -3,388 +3,314 @@
 [![PyPI version](https://img.shields.io/pypi/v/speedhive-tools.svg)](https://pypi.org/project/speedhive-tools/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![CI](https://github.com/ncrosty58/speedhive-tools/actions/workflows/publish.yml/badge.svg)](https://github.com/ncrosty58/speedhive-tools/actions)
 
-Python toolkit for the [MyLaps Event Results API](https://api2.mylaps.com/v3/api-docs). Export race events, sessions, laps, and announcements to CSV, SQLite, or JSON with a single command.
+Command-line toolkit for working with the MyLaps Event Results API (export, process, and analyze).
+This README focuses on the recommended entrypoint: the `speedhive` CLI.
 
-## Features
+## Highlights
 
-- **Full Data Export** — Stream events, sessions, laps, and announcements for any organization
-- **Multiple Output Formats** — CSV, SQLite, JSON, and compressed NDJSON
-- **Memory Efficient** — Streaming architecture handles large datasets without high RAM usage
-- **Resumable Downloads** — Checkpoint support for interrupted exports
-- **Interactive CLI** — Process exported data with guided prompts or batch flags
+- Full data export (events, sessions, laps, announcements) to gzipped NDJSON
+- Offline processing into CSV/JSON/SQLite for reproducible analytics
+- Unified, interactive CLI plus scripted flags for automation
+- Memory-efficient streaming processors for large datasets
 
 ## Installation
 
-### From PyPI
+From PyPI:
 
 ```bash
 pip install speedhive-tools
 ```
 
-### From Source
+From source (developer):
 
 ```bash
 git clone https://github.com/ncrosty58/speedhive-tools.git
 cd speedhive-tools
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+pip install -e .
 ```
 
-## Quick Start
+## Primary Usage — `speedhive` CLI
 
-### 1. Export Data
+The `speedhive` command is the recommended entrypoint. It provides a consistent interface to export, process, extract, and report without needing to call individual scripts directly.
 
-Export all data for an organization (events, sessions, laps, announcements):
+Interactive mode (recommended for exploratory use):
 
 ```bash
-python examples/export_full_dump.py --org 30476 --output ./output/full_dump --verbose
+speedhive
+# or when installed from source
+python -m speedhive_tools.cli
 ```
 
-### 2. Process to CSV
+When run without a subcommand the CLI launches an interactive prompt that guides you through the common workflows (export, process, extract driver laps, consistency reports).
 
-Convert the exported NDJSON to flat CSV files:
+Scripted usage (for automation / CI):
 
 ```bash
-python examples/processing/extract_laps_to_csv.py \
-    --input output/full_dump/30476 \
-    --out output/full_dump/30476/laps.csv
+# Export a full dump for an organization (writes files under `output/<org>/`)
+speedhive export-full-dump --org 30476 --output ./output --verbose
+
+# Process a previously exported dump into analysis artifacts (dump dir: `output/<org>/`)
+speedhive process-full-dump --org 30476 --dump-dir ./output/30476 --out-dir ./output
+
+# Show the top 10 most consistent drivers
+speedhive report-consistency --org 30476 --top 10 --min-laps 20
+
+# Extract laps for a specific driver
+speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
 ```
 
-### 3. Or Use the Unified CLI
+Common flags (all subcommands accept contextual flags; use `--help` for details):
+
+- `--org` : Organization ID (required for most commands)
+- `--dump-dir` / `--output` : Dump/input and output directories
+- `--verbose` : Enable verbose logging
+
+Use `speedhive <subcommand> --help` to see all flags for a given operation.
+
+## Offline workflow (recommended)
+
+1. Export a canonical full dump (one-time or repeatable):
 
 ```bash
-speedhive export-full-dump --org 30476
-speedhive process-full-dump --org 30476
-speedhive report-consistency --org 30476
+speedhive export-full-dump --org 30476 --output ./output --no-resume
 ```
 
-## Offline workflow
-
-This project supports a simple offline workflow that lets you reproduce analytics from a canonical full dump without contacting the API during analysis.
-
-- **Export (one-time / repeatable):** `speedhive export-full-dump` writes NDJSON files under `output/full_dump/<org>/`. The exporter now includes session classification/results in `results.ndjson` when the API supports it.
-
-    ```bash
-    python3 examples/export_full_dump.py --org 30476 --output ./output/full_dump --verbose --no-resume
-    ```
-
-- **Process (offline):** `examples/process_full_dump.py` reads the dump directory and produces analysis-ready JSON files in `output/`:
-    - `output/laps_by_driver_<org>.json` — mapping driver keys (`session<id>_pos<n>`) to lap-time lists
-    - `output/consistency_<org>_enriched.json` — per-driver aggregated stats with `name` populated from `results.ndjson` when available
-
-    ```bash
-    python3 examples/process_full_dump.py --org 30476 --dump-dir output/full_dump --out-dir output
-    ```
-
-- **Report (offline):** Example scripts under `examples/fun` (e.g. `report_driver_consistency.py`) read the `output/` artifacts above and run without API access.
-
-    ```bash
-    python3 examples/fun/report_driver_consistency.py --name "Nathan Crosty" --org 30476
-    ```
-
-Notes and tips:
-- The authoritative analysis files live under `output/` — prefer `output/consistency_<org>_enriched.json` and `output/laps_by_driver_<org>.json` for downstream reporting.
-- Avoid keeping old copies of generated files at the repository root (e.g. `./consistency_<org>_enriched.json`) — they can be stale. Remove them to prevent confusion.
-- To force the exporter to re-fetch session results, run it with `--no-resume` so checkpoints are cleared and `results.ndjson` is repopulated.
-
-
-## Usage
-
-### Export Commands
-
-| Command | Description |
-|---------|-------------|
-| `export_full_dump.py --org <id>` | Export all data (events, sessions, laps, announcements) |
-| `export_events.py <org_id>` | Export events for an organization |
-| `export_sessions.py <event_id>` | Export sessions for an event |
-| `export_laps.py <session_id>` | Export lap times for a session |
-| `export_results.py <session_id>` | Export results/classification for a session |
-| `export_announcements.py --org <id>` | Export announcements for an organization |
-| `export_championships.py --org <id>` | Export championships for an organization |
-| `export_championships.py --championship <id>` | Export championship standings |
-| `export_lap_chart.py <session_id>` | Export lap chart data for visualizations |
-| `export_track_records.py --org <id>` | Export track records for an organization |
-| `get_fastest_records.py --org <id>` | Get fastest track record for each classification |
-
-### Export Options
+2. Process the dump into analysis-ready artifacts (JSON/CSV/SQLite):
 
 ```bash
-python examples/export_full_dump.py \
-    --org 30476 \
-    --output ./output/full_dump \
-    --max-events 10 \
-    --max-sessions-per-event 5 \
-    --concurrency 2 \
-    --verbose \
-    --dry-run
+speedhive process-full-dump --org 30476 --dump-dir ./output/full_dump --out-dir ./output
 ```
 
-| Flag | Description |
-|------|-------------|
-| `--org` | Organization ID (required, repeatable) |
-| `--output` | Output directory (default: `./output/full_dump`) |
-| `--max-events` | Limit number of events to export |
-| `--max-sessions-per-event` | Limit sessions per event |
-| `--concurrency` | Parallel request limit (default: 5) |
-| `--token` | API token for authenticated endpoints |
-| `--dry-run` | Preview without writing files |
-| `--verbose` | Enable detailed logging |
-
-### Processing Commands
-
-Convert exported NDJSON to analysis-ready formats:
+3. Run reports or extract driver data from the processed artifacts (no API required):
 
 ```bash
-# Extract to CSV
-python examples/processing/extract_events_to_csv.py --input <dir> --out events.csv
-python examples/processing/extract_sessions_to_csv.py --input <dir> --out sessions.csv
-python examples/processing/extract_laps_to_csv.py --input <dir> --out laps.csv
-python examples/processing/extract_announcements_to_csv.py --input <dir> --out announcements.csv
-
-# Import to SQLite
-python examples/processing/ndjson_to_sqlite.py --input <dir>/laps.ndjson.gz --out dump.db
+speedhive report-consistency --org 30476 --top 10
+speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
 ```
 
-### Unified CLI
+The processing step produces canonical files under `output/` that downstream reports and analyzers consume. Prefer these generated artifacts for reproducible analysis.
+# speedhive-tools
 
-The `speedhive` command provides a unified interface for all common operations:
+[![PyPI version](https://img.shields.io/pypi/v/speedhive-tools.svg)](https://pypi.org/project/speedhive-tools/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+Command-line toolkit and client wrapper for the MyLaps Event Results API (export, process, analyze).
+
+**This README covers:** the unified `speedhive` CLI, how discovery and module registration work, the `SpeedhiveClient` wrapper, example scripts (in `examples/`), and how to run tests.
+
+## Highlights
+
+- Export events, sessions, laps, and announcements to gzipped NDJSON
+- Process exported dumps into reproducible analysis artifacts (JSON/CSV/SQLite)
+- Unified CLI with interactive and scripted modes
+- Auto-discovery of exporter/processor/analyzer modules with optional argparse integration
+- Lightweight `SpeedhiveClient` wrapper to make the generated API client easier to use
+
+## Installation
+
+From PyPI:
 
 ```bash
-# Export data
-speedhive export-full-dump --org 30476
-
-# Process data
-speedhive process-full-dump --org 30476
-
-# Analyze consistency
-speedhive report-consistency --org 30476
-
-# Extract driver data
-speedhive extract-driver-laps --org 30476 --driver "Nathan Crosty"
+pip install speedhive-tools
 ```
 
-## Using the Client Library
+From source (developer):
 
-If you want to build your own programs using the MyLaps API, use the `SpeedhiveClient` wrapper for a simple, Pythonic interface.
+```bash
+git clone https://github.com/ncrosty58/speedhive-tools.git
+cd speedhive-tools
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+pip install -e .
+```
 
-### Quick Start
+## Primary Usage — `speedhive` CLI
+
+The `speedhive` entrypoint (installed console script or `python -m speedhive_tools.cli`) is the recommended interface.
+
+Interactive mode (explore available actions and discovered modules):
+
+```bash
+speedhive
+# or when running from source
+python -m speedhive_tools.cli
+```
+
+When invoked without a subcommand the CLI launches a short interactive front screen that:
+
+- Lists discovered commands grouped by category: Exporters, Processors, Analyzers
+- Lets you select a command to run and optionally provide extra args
+- Includes a small set of core scripted workflows (export-full-dump, process-full-dump, extract-driver-laps, report-consistency)
+
+Scripted usage (automation / CI):
+
+```bash
+# Export a full dump for an organization (writes files under `output/<org>/`)
+speedhive export-full-dump --org 30476 --output ./output --verbose
+
+# Process a previously exported dump into analysis artifacts (dump dir: `output/<org>/`)
+speedhive process-full-dump --org 30476 --dump-dir ./output/30476 --out-dir ./output
+
+# Show the top N most consistent drivers
+speedhive report-consistency --org 30476 --top 10 --min-laps 20
+
+# Extract laps for a specific driver
+speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
+```
+
+Use `speedhive <subcommand> --help` for details on flags for the built-in core commands.
+
+## Discovery and Extension
+
+The CLI performs runtime discovery of any modules under these packages:
+
+- `speedhive_tools.exporters`
+- `speedhive_tools.processors`
+- `speedhive_tools.analyzers`
+
+Discovery rules:
+
+- Any module exposing a callable `main()` is considered a runnable command and will be listed in the interactive menu.
+- The CLI will attempt to register discovered modules with `argparse` so `speedhive <cmd> --help` can show flags.
+
+Registration behavior:
+
+- If a discovered module defines a `register_subparser(parser: argparse.ArgumentParser)` function the CLI will call it so the module can declare its own flags (recommended for full integration).
+- If `register_subparser` is not present or registration fails, the CLI falls back to a passthrough subparser that accepts `extra_args` (nargs=argparse.REMAINDER) and forwards those to the module's `main()` as `argv`.
+
+How to integrate a new module:
+
+1. Implement `main(argv=None)` in your module (existing convention).
+2. Optionally implement `register_subparser(parser)` to expose flags and improve `--help` output.
+
+This approach keeps existing modules working (no mandatory changes) while enabling a richer CLI experience when modules opt in.
+
+## Examples (quick start)
+
+Example scripts are in the `examples/` directory. They demonstrate using the `SpeedhiveClient` wrapper and how to call common endpoints.
+
+Run an example directly (from the repository root):
+
+```bash
+python -m examples.example_get_events --org 30476 --limit 5
+python -m examples.example_get_session_laps --session 12345
+python -m examples.example_server_time
+```
+
+List of provided example scripts (each defines `main(argv=None)`):
+
+- `examples/example_server_time.py` — get server time
+- `examples/example_get_events.py` — list events for an org
+- `examples/example_get_event_sessions.py` — list sessions for an event
+- `examples/example_get_session_laps.py` — fetch laps for a session
+- `examples/example_get_session_results.py` — fetch classification/results
+- `examples/example_get_session_announcements.py` — fetch session announcements
+- `examples/example_get_lap_chart.py` — fetch lap chart data
+- `examples/example_championships.py` — list/fetch championships
+- `examples/example_track_records.py` — find track records
+- `examples/example_get_organization.py` — get organization details
+
+These examples are intentionally minimal and synchronous; they demonstrate how to use the `SpeedhiveClient` wrapper from `mylaps_client_wrapper.py`.
+
+## SpeedhiveClient wrapper
+
+The module `mylaps_client_wrapper.py` provides the `SpeedhiveClient` class — a small, ergonomic wrapper around the generated `event_results_client` API. It exposes convenience methods such as:
+
+- `get_events(org_id, limit=None)`
+- `iter_events(org_id)`
+- `get_event(event_id)`
+- `get_sessions(event_id)`
+- `get_session(session_id)`
+- `get_laps(session_id, flatten=True)`
+- `get_results(session_id)`
+- `get_announcements(session_id)`
+- `get_lap_chart(session_id)`
+- `get_championships(org_id)`
+- `get_track_records(org_id, ...)`
+- `get_server_time()`
+
+Example usage:
 
 ```python
 from mylaps_client_wrapper import SpeedhiveClient
 
 client = SpeedhiveClient()
+events = client.get_events(org_id=30476, limit=5)
+for e in events:
+	print(e.get('id'), e.get('name'))
 
-# Get events for an organization
-events = client.get_events(org_id=30476, limit=10)
-for event in events:
-    print(f"{event['name']} - {event.get('date')}")
-
-# Get sessions for an event
-sessions = client.get_sessions(event_id=123456)
-
-# Get lap times for a session
-laps = client.get_laps(session_id=789012)
-for lap in laps:
-    print(f"Lap {lap.get('lapNumber')}: {lap.get('lapTime')}")
-
-# Get results/classification
-results = client.get_results(session_id=789012)
-
-# Get track records for an organization
-records = client.get_track_records(org_id=30476, classification="IT7")
-for record in records:
-    print(f"{record['classification']}: {record['lap_time']} by {record['driver']}")
-
-# Get the fastest track record for a classification
-fastest = client.get_fastest_track_record(org_id=30476, classification="IT7")
-if fastest:
-    print(f"Fastest IT7: {fastest['lap_time']} by {fastest['driver']}")
+laps = client.get_laps(session_id=12345)
 ```
 
-### Available Methods
+See `examples/` for small scripts that show common patterns.
 
-| Method | Description |
-|--------|-------------|
-| `get_organization(org_id)` | Get organization details |
-| `get_events(org_id, limit, offset)` | Get events for an organization |
-| `iter_events(org_id)` | Iterate all events (handles pagination) |
-| `get_event(event_id)` | Get event details |
-| `get_sessions(event_id)` | Get sessions for an event |
-| `get_session(session_id)` | Get session details |
-| `get_laps(session_id)` | Get all lap times for a session |
-| `get_results(session_id)` | Get classification/standings |
-| `get_announcements(session_id)` | Get session announcements |
-| `get_lap_chart(session_id)` | Get position changes per lap (for visualizations) |
-| `get_championships(org_id)` | Get championships for an organization |
-| `get_championship(championship_id)` | Get championship standings |
-| `get_track_records(org_id, classification, limit_events)` | Get track records for an organization |
-| `get_fastest_track_record(org_id, classification, limit_events)` | Get fastest track record for a classification |
-| `iter_track_records_by_event(org_id, classification)` | Memory-efficient iterator for track records |
-| `get_server_time()` | Get API server time |
+## Offline workflow (recommended)
 
-### With Authentication
+1. Export a canonical full dump:
 
-Some endpoints require authentication:
-
-```python
-client = SpeedhiveClient(token="YOUR_API_TOKEN")
+```bash
+speedhive export-full-dump --org 30476 --output ./output --no-resume
 ```
 
-### Pagination Example
+2. Process the dump into analysis-ready artifacts:
 
-Iterate through all events without worrying about pagination:
-
-```python
-client = SpeedhiveClient()
-
-for event in client.iter_events(org_id=30476):
-    print(event['name'])
-    
-    # Get all sessions and laps for each event
-    for session in client.get_sessions(event['id']):
-        laps = client.get_laps(session['id'])
-        print(f"  {session['name']}: {len(laps)} laps")
+```bash
+speedhive process-full-dump --org 30476 --dump-dir ./output/30476 --out-dir ./output
 ```
 
-### Track Records
+3. Run analyzers or extractors against the processed artifacts (no API calls required):
 
-Track records are extracted from session announcements. The API efficiently scans events to find "New Track Record" announcements. Records now include an optional `marque` field (car make/model) when present in the announcement, and driver names are normalized (leading bracketed competitor numbers such as "[25]" are removed).
-
-```python
-client = SpeedhiveClient()
-
-# Get all track records for an organization
-records = client.get_track_records(org_id=30476)
-
-# Filter by classification
-it7_records = client.get_track_records(org_id=30476, classification="IT7")
-
-# Get only the fastest (current) record for a classification
-fastest = client.get_fastest_track_record(org_id=30476, classification="IT7")
-if fastest:
-    print(f"{fastest['classification']}: {fastest['lap_time']} by {fastest['driver']}")
-
-# Memory-efficient iteration (processes one event at a time)
-for record in client.iter_track_records_by_event(org_id=30476):
-    print(f"{record['classification']}: {record['lap_time']}")
+```bash
+speedhive report-consistency --org 30476 --top 10
+speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
 ```
 
-**Performance Tips:**
-- Use `limit_events` parameter to limit the scan for testing/development
-- Use `iter_track_records_by_event()` for large organizations to avoid loading all data into memory
-- Filter by `classification` to reduce processing time
+## Output format
 
-### Using the Raw Client
-
-For advanced use cases, you can access the underlying generated client directly:
-
-```python
-import sys
-sys.path.insert(0, "mylaps_client")
-
-from event_results_client import Client
-from event_results_client.api.organization_controller.get_event_list import sync_detailed
-import json
-
-client = Client(base_url="https://api2.mylaps.com")
-response = sync_detailed(id=30476, client=client, count=50)
-events = json.loads(response.content)
-```
-
-For the full API specification, see the [MyLaps API Documentation](https://api2.mylaps.com/v3/api-docs).
-
-## Project Structure
+Exported NDJSON layout (gzipped files):
 
 ```
-speedhive-tools/
-├── speedhive_tools/         # Main package
-│   ├── cli.py               # Unified CLI entry point
-│   ├── exporters/           # Data export modules
-│   │   ├── export_full_dump.py
-│   │   ├── export_events.py
-│   │   └── ... (9 export modules)
-│   ├── processors/          # Data processing modules
-│   │   ├── process_full_dump.py
-│   │   ├── extract_laps_to_csv.py
-│   │   └── ... (7 processing modules)
-│   ├── analyzers/           # Analysis & reporting modules
-│   │   ├── driver_laps.py
-│   │   ├── report_consistency.py
-│   │   └── ... (5 analysis modules)
-│   └── utils/               # Shared utilities
-│       └── common.py
-├── mylaps_client/           # Generated OpenAPI client (event_results_client)
-├── mylaps_client_wrapper.py # User-friendly API wrapper (SpeedhiveClient)
-```
-│       ├── extract_sessions_to_csv.py
-│       ├── extract_laps_to_csv.py
-│       ├── extract_announcements_to_csv.py
-│       └── ndjson_to_sqlite.py
-├── tests/                  # Unit tests
-└── output/                 # Default export location (gitignored)
-```
-
-## Output Format
-
-The exporter creates gzipped NDJSON files:
-
-```
-output/full_dump/<org_id>/
+output/<org_id>/
 ├── events.ndjson.gz
 ├── sessions.ndjson.gz
 ├── laps.ndjson.gz
 ├── announcements.ndjson.gz
-└── .checkpoint.json        # Resume state
+└── .checkpoint.json
 ```
 
-## Development
+Processed artifacts (examples):
 
-### Run Tests
+- `output/laps_by_driver_<org>.json` — lap lists keyed by driver identifier
+- `output/consistency_<org>_enriched.json` — per-driver aggregated stats
+
+## Running tests
+
+Install test deps and run pytest:
 
 ```bash
-pip install pytest
-pytest
+pip install -r requirements.txt
+pytest -q
 ```
 
-### Regenerate API Client
+New tests include `tests/test_examples_scripts.py` which validates that each example module exposes a callable `main()`.
 
-If the MyLaps API spec changes:
+## Developer notes (package layout)
 
-```bash
-pip install openapi-python-client
-openapi-python-client generate --url https://api2.mylaps.com/v3/api-docs --output-path ./mylaps_client
-```
+- `speedhive_tools/exporters` — exporter modules (e.g. `export_full_dump.py`)
+- `speedhive_tools/processors` — processors and extractors
+- `speedhive_tools/analyzers` — reporting and analysis utilities
+- `mylaps_client_wrapper.py` — `SpeedhiveClient` wrapper
+- `examples/` — runnable example scripts demonstrating wrapper usage
 
-### Build Distribution
-
-```bash
-pip install build
-python -m build
-```
-
-## CI/CD
-
-This project uses GitHub Actions for automated testing and PyPI publishing. Pushing a version tag triggers:
-
-1. Run test suite
-2. Build sdist and wheel
-3. Publish to PyPI
-
-```bash
-git tag v0.1.3
-git push origin v0.1.3
-```
+If you add new modules that should be visible in the CLI make them discoverable by placing them in one of the exporter/processor/analyzer packages and either provide `main()` (required) or also provide `register_subparser(parser)` (recommended) for argparse help integration.
 
 ## Contributing
 
-Contributions welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Submit a pull request
+Contributions welcome. Open an issue or PR and include tests for new functionality.
 
 ## License
 

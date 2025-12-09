@@ -32,7 +32,7 @@ def test_extract_laps_to_csv(tmp_path):
     _write_gz_lines(laps_path, [sample])
 
     # import function and run
-    from examples.processing.extract_laps_to_csv import extract
+    from speedhive_tools.processors.extract_laps_to_csv import extract
 
     out_csv = tmp_path / "out.csv"
     n = extract(laps_path, out_csv)
@@ -50,7 +50,7 @@ def test_extract_sessions_to_csv(tmp_path):
     sample = {"event_id": 1, "sessions": [{"id": 100, "name": "Practice", "startTime": "2025-01-01T10:00:00Z"}]}
     _write_gz_lines(sessions_path, [sample])
 
-    from examples.processing.extract_sessions_to_csv import extract
+    from speedhive_tools.processors.extract_sessions_to_csv import extract
 
     out_csv = tmp_path / "sessions.csv"
     n = extract(sessions_path, out_csv)
@@ -67,7 +67,7 @@ def test_extract_announcements_to_csv_and_sqlite(tmp_path):
     sample = {"event_id": 1, "session_id": 10, "rows": [{"text": "Race starts", "time": "2025-01-01T11:00:00Z"}]}
     _write_gz_lines(ann_path, [sample])
 
-    from examples.processing.extract_announcements_to_csv import extract
+    from speedhive_tools.processors.extract_announcements_to_csv import extract
     out_csv = tmp_path / "ann.csv"
     n = extract(ann_path, out_csv)
     assert n == 1
@@ -79,7 +79,7 @@ def test_extract_announcements_to_csv_and_sqlite(tmp_path):
     laps_sample = {"event_id": 1, "session_id": 10, "rows": [{"competitorId": "C1", "lapNumber": 1, "lapTime": "00:01:00"}]}
     _write_gz_lines(laps_path, [laps_sample])
 
-    from examples.processing.ndjson_to_sqlite import ingest_laps
+    from speedhive_tools.processors.ndjson_to_sqlite import ingest_laps
     db_path = tmp_path / "dump.db"
     inserted = ingest_laps(laps_path, db_path)
     assert inserted == 1
