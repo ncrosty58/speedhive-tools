@@ -79,7 +79,6 @@ def main():
         epilog="""
         Examples:
             speedhive export-full-dump --org 30476 --output ./output
-            speedhive process-full-dump --org 30476
     """
     )
     # register subparsers (discovered modules only)
@@ -208,16 +207,9 @@ def main():
                 sys.argv.extend(['--concurrency', str(args.concurrency)])
             return export_main()
 
-        elif args.command == 'process-full-dump':
-            from speedhive_tools.processors.process_full_dump import main as process_main
-            # Convert args
-            sys.argv = ['process_full_dump.py',
-                       '--org', str(args.org)]
-            if args.dump_dir != Path('./output'):
-                sys.argv.extend(['--dump-dir', str(args.dump_dir)])
-            if args.out_dir != Path('./output'):
-                sys.argv.extend(['--out-dir', str(args.out_dir)])
-            return process_main()
+        # 'process-full-dump' was removed; processing is available on-demand via
+        # `speedhive_tools.utils.common.compute_laps_and_enriched` and individual
+        # processors/analyzers will compute artifacts when needed.
 
         elif args.command == 'extract-driver-laps':
             from speedhive_tools.analyzers.driver_laps import main as extract_main

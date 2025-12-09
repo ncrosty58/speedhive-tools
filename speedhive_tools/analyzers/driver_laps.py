@@ -46,7 +46,7 @@ def is_race_session(session_raw: Dict) -> bool:
 
 
 # Deprecated on-disk artifacts `laps_by_driver` and `consistency_*_enriched.json`
-# were previously created by `process_full_dump`. We now compute those maps
+# were previously created by a legacy processing step. We now compute those maps
 # on-demand from the raw export located under `dump_dir/<org>`.
 
 

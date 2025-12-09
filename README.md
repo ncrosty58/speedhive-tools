@@ -4,99 +4,9 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Command-line toolkit for working with the MyLaps Event Results API (export, process, and analyze).
-This README focuses on the recommended entrypoint: the `speedhive` CLI.
+Command-line toolkit and client wrapper for the MyLaps Event Results API (export, process, analyze).
 
-## Highlights
-
-- Full data export (events, sessions, laps, announcements) to gzipped NDJSON
-- Offline processing into CSV/JSON/SQLite for reproducible analytics
-- Unified, interactive CLI plus scripted flags for automation
-- Memory-efficient streaming processors for large datasets
-
-## Installation
-
-From PyPI:
-
-```bash
-pip install speedhive-tools
-```
-
-From source (developer):
-
-```bash
-git clone https://github.com/ncrosty58/speedhive-tools.git
-cd speedhive-tools
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-pip install -e .
-```
-
-## Primary Usage — `speedhive` CLI
-
-The `speedhive` command is the recommended entrypoint. It provides a consistent interface to export, process, extract, and report without needing to call individual scripts directly.
-
-Interactive mode (recommended for exploratory use):
-
-```bash
-speedhive
-# or when installed from source
-python -m speedhive_tools.cli
-```
-
-When run without a subcommand the CLI launches an interactive prompt that guides you through the common workflows (export, process, extract driver laps, consistency reports).
-
-Scripted usage (for automation / CI):
-
-```bash
-# Export a full dump for an organization (writes files under `output/<org>/`)
-speedhive export-full-dump --org 30476 --output ./output --verbose
-
-# Process a previously exported dump into analysis artifacts (dump dir: `output/<org>/`)
-speedhive process-full-dump --org 30476 --dump-dir ./output/30476 --out-dir ./output
-
-# Show the top 10 most consistent drivers
-speedhive report-consistency --org 30476 --top 10 --min-laps 20
-
-# Extract laps for a specific driver
-speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
-```
-
-Common flags (all subcommands accept contextual flags; use `--help` for details):
-
-- `--org` : Organization ID (required for most commands)
-- `--dump-dir` / `--output` : Dump/input and output directories
-- `--verbose` : Enable verbose logging
-
-Use `speedhive <subcommand> --help` to see all flags for a given operation.
-
-## Offline workflow (recommended)
-
-1. Export a canonical full dump (one-time or repeatable):
-
-```bash
-speedhive export-full-dump --org 30476 --output ./output --no-resume
-```
-
-2. Process the dump into analysis-ready artifacts (JSON/CSV/SQLite):
-
-```bash
-speedhive process-full-dump --org 30476 --dump-dir ./output/full_dump --out-dir ./output
-```
-
-3. Run reports or extract driver data from the processed artifacts (no API required):
-
-```bash
-speedhive report-consistency --org 30476 --top 10
-speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
-```
-
-The processing step produces canonical files under `output/` that downstream reports and analyzers consume. Prefer these generated artifacts for reproducible analysis.
-# speedhive-tools
-
-[![PyPI version](https://img.shields.io/pypi/v/speedhive-tools.svg)](https://pypi.org/project/speedhive-tools/)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+**This README covers:** the unified `speedhive` CLI, how discovery and module registration work, the `SpeedhiveClient` wrapper, example scripts (in `examples/`), and how to run tests.
 
 Command-line toolkit and client wrapper for the MyLaps Event Results API (export, process, analyze).
 
@@ -144,7 +54,7 @@ When invoked without a subcommand the CLI launches a short interactive front scr
 
 - Lists discovered commands grouped by category: Exporters, Processors, Analyzers
 - Lets you select a command to run and optionally provide extra args
-- Includes a small set of core scripted workflows (export-full-dump, process-full-dump, extract-driver-laps, report-consistency)
+ - Includes a small set of core scripted workflows (export-full-dump, extract-driver-laps, report-consistency)
 
 Scripted usage (automation / CI):
 
@@ -152,14 +62,14 @@ Scripted usage (automation / CI):
 # Export a full dump for an organization (writes files under `output/<org>/`)
 speedhive export-full-dump --org 30476 --output ./output --verbose
 
-# Process a previously exported dump into analysis artifacts (dump dir: `output/<org>/`)
-speedhive process-full-dump --org 30476 --dump-dir ./output/30476 --out-dir ./output
-
 # Show the top N most consistent drivers
 speedhive report-consistency --org 30476 --top 10 --min-laps 20
 
 # Extract laps for a specific driver
 speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
+
+# Extract track records to CSV
+speedhive extract-track-records --org 30476
 ```
 
 Use `speedhive <subcommand> --help` for details on flags for the built-in core commands.
@@ -256,17 +166,12 @@ See `examples/` for small scripts that show common patterns.
 speedhive export-full-dump --org 30476 --output ./output --no-resume
 ```
 
-2. Process the dump into analysis-ready artifacts:
-
-```bash
-speedhive process-full-dump --org 30476 --dump-dir ./output/30476 --out-dir ./output
-```
-
-3. Run analyzers or extractors against the processed artifacts (no API calls required):
+2. Run processors and analyzers directly on the exported dump (artifacts computed on-demand, no API calls required):
 
 ```bash
 speedhive report-consistency --org 30476 --top 10
 speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
+speedhive extract-track-records --org 30476
 ```
 
 ## Output format
@@ -282,10 +187,10 @@ output/<org_id>/
 └── .checkpoint.json
 ```
 
-Processed artifacts (examples):
+Processor outputs (examples):
 
-- `output/laps_by_driver_<org>.json` — lap lists keyed by driver identifier
-- `output/consistency_<org>_enriched.json` — per-driver aggregated stats
+- `output/track_records_<org>.csv` — track records extracted from announcements
+- `output/driver_laps_<org>_<driver>.csv` — laps for a specific driver
 
 ## Running tests
 

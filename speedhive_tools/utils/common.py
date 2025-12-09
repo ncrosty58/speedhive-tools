@@ -113,7 +113,7 @@ def compute_laps_and_enriched(dump_dir: Path, org: int):
     """Compute laps_by_driver and enriched mappings from an export directory.
 
     Returns a tuple (laps_by_driver: Dict[str, List[float]], enriched: Dict[str, Dict])
-    that mirrors the artifacts previously produced by `process_full_dump.py`.
+    that mirrors the artifacts previously produced by the legacy processing step.
     The function is defensive about gzipped/plain NDJSON filenames.
     """
     from collections import defaultdict

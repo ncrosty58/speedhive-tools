@@ -8,7 +8,6 @@ def test_package_and_submodules_importable():
     for mod in (
         "speedhive_tools.cli",
         "speedhive_tools.exporters.export_full_dump",
-        "speedhive_tools.processors.process_full_dump",
         "speedhive_tools.analyzers.driver_laps",
         "speedhive_tools.utils.common",
     ):
