@@ -26,11 +26,13 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from speedhive_tools.utils.common import open_ndjson, normalize_name
+from speedhive_tools.utils.common import open_ndjson, normalize_name, compute_laps_and_enriched
 
 
 def load_enriched(out_dir: Path, org: int) -> Dict[str, Dict]:
     p = out_dir / f"consistency_{org}_enriched.json"
+    if not p.exists():
+        return {}
     with open(p, "r", encoding="utf8") as fh:
         return json.load(fh)
 
@@ -278,7 +280,7 @@ def find_driver_percentile(clustered: Dict[str, Dict], query: str, min_laps: int
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--org", type=int, required=True)
-    p.add_argument("--dump-dir", type=Path, default=Path("output/full_dump"))
+    p.add_argument("--dump-dir", type=Path, default=Path("output"))
     p.add_argument("--out-dir", type=Path, default=Path("output"))
     p.add_argument("--min-laps", type=int, default=20, help="Minimum total laps to consider a driver")
     p.add_argument("--top", type=int, default=10, help="How many top/bottom drivers to show")
@@ -286,7 +288,14 @@ def main():
     p.add_argument("--driver", "--name", dest="driver", type=str, default=None, help="Driver name to query for percentile")
     args = p.parse_args()
 
+    # Try to load precomputed enriched artifact; if missing, compute on-demand
     enriched = load_enriched(args.out_dir, args.org)
+    if not enriched:
+        try:
+            _, enriched = compute_laps_and_enriched(args.dump_dir, int(args.org))
+        except Exception:
+            enriched = {}
+
     session_map = load_session_types(args.dump_dir, args.org)
     by_name = aggregate_by_name(enriched, session_map)
     clustered = cluster_names(by_name, threshold=args.threshold)
