@@ -56,6 +56,13 @@ try:
 except Exception:
     get_announcements_for_session_async = None
 
+# session classification / results (optional)
+get_classification_for_session_async: Optional[Callable[..., Awaitable[Any]]] = None
+try:
+    from event_results_client.api.session_controller.get_classification import asyncio_detailed as get_classification_for_session_async
+except Exception:
+    get_classification_for_session_async = None
+
 # The generated client may expose lap data under multiple endpoint names.
 # Try a few common variants and pick the first one that exists.
 get_lap_rows_async: Optional[Callable[..., Awaitable[Any]]] = None
@@ -133,6 +140,7 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
     HAVE_EVENTS = callable(get_events_for_org_async)
     HAVE_SESSIONS = callable(get_sessions_for_event_async)
     HAVE_ANNOUNCEMENTS = callable(get_announcements_for_session_async)
+    HAVE_CLASSIFICATION = callable(get_classification_for_session_async)
     HAVE_LAP_ROWS = callable(get_lap_rows_async)
 
     # After checking availability, cast to callables for type-checkers
@@ -148,6 +156,8 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
 
     if not HAVE_ANNOUNCEMENTS and verbose:
         print("[WARN] announcements endpoint missing in generated client; exporter will skip announcements")
+    if not HAVE_CLASSIFICATION and verbose:
+        print("[WARN] session classification endpoint missing in generated client; exporter will skip session results")
     if not HAVE_LAP_ROWS and verbose:
         print("[WARN] lap rows endpoint missing in generated client; exporter will skip lap rows")
 
@@ -208,6 +218,7 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
     sessions_fh, sessions_write = ndjson_writer(out_dir / "sessions.ndjson", compress)
     laps_fh, laps_write = ndjson_writer(out_dir / "laps.ndjson", compress)
     anns_fh, anns_write = ndjson_writer(out_dir / "announcements.ndjson", compress)
+    results_fh, results_write = ndjson_writer(out_dir / "results.ndjson", compress)
 
     import asyncio
 
@@ -292,6 +303,23 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
                 if verbose:
                     print(f"[DEBUG] skipping announcements for session {sid} (endpoint missing)")
 
+            # session classification / results (optional)
+            if HAVE_CLASSIFICATION and get_classification_for_session_async is not None:
+                async with sem:
+                    cresp = await get_classification_for_session_async(sid, client=client)
+                c_payload = safe_load_json(getattr(cresp, "content", None))
+                if c_payload:
+                    # normalize potential wrappers
+                    rows = []
+                    if isinstance(c_payload, dict) and isinstance(c_payload.get("rows"), list):
+                        rows = c_payload.get("rows", [])
+                    elif isinstance(c_payload, list):
+                        rows = c_payload
+                    results_write({**base_event, "session_id": sid, "results": rows})
+            else:
+                if verbose:
+                    print(f"[DEBUG] skipping session results for session {sid} (endpoint missing)")
+
             # lap rows
             # lap rows (optional)
             if HAVE_LAP_ROWS and get_lap_rows is not None:
@@ -358,6 +386,7 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
     sessions_fh.close()
     laps_fh.close()
     anns_fh.close()
+    results_fh.close()
 
 
 def main(argv: Optional[List[str]] = None) -> int:
