@@ -193,6 +193,13 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
 
     ckpt_path = _checkpoint_path(checkpoint_arg)
     checkpoint: dict = {"events_processed": [], "sessions_processed": {}}
+    if not resume:
+        # Clear any existing checkpoint when user requested no-resume
+        try:
+            if ckpt_path.exists():
+                os.remove(ckpt_path)
+        except Exception:
+            pass
     if ckpt_path.exists():
         checkpoint = _load_checkpoint(ckpt_path)
 
