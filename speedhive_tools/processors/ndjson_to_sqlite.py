@@ -51,8 +51,8 @@ def ingest_laps(in_path: Path, db_path: Path) -> int:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Import laps NDJSON gz -> SQLite DB")
-    p.add_argument("--input", type=Path, default=Path("output/full_dump/30476/laps.ndjson.gz"), help="Input laps NDJSON gz file path")
-    p.add_argument("--out", type=Path, default=Path("output/full_dump/30476/dump.db"), help="Output SQLite DB path")
+    p.add_argument("--input", type=Path, default=Path("output/30476/laps.ndjson.gz"), help="Input laps NDJSON gz file path")
+    p.add_argument("--out", type=Path, default=Path("output/30476/dump.db"), help="Output SQLite DB path")
     args = p.parse_args(argv)
 
     if not args.input.exists():

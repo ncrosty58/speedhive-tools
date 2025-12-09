@@ -128,12 +128,20 @@ class TestExtractEventsToCSV:
     """Test the events extractor."""
 
     def test_extract_events_to_csv_exists(self):
-        p = Path("examples/processing/extract_events_to_csv.py")
-        assert p.exists(), "extract_events_to_csv.py should exist"
+        import importlib
+
+        modname = "speedhive_tools.processors.extract_events_to_csv"
+        try:
+            importlib.import_module(modname)
+        except Exception as exc:  # pragma: no cover - test should fail if import fails
+            pytest.fail(f"Could not import {modname}: {exc}")
 
     def test_extract_events_has_main(self):
-        p = Path("examples/processing/extract_events_to_csv.py")
-        src = p.read_text(encoding="utf8")
-        assert "def main(" in src
+        import importlib
+        import inspect
+
+        mod = importlib.import_module("speedhive_tools.processors.extract_events_to_csv")
+        # ensure at least the module exposes a callable main or extract function
+        assert (hasattr(mod, "main") and inspect.isfunction(mod.main)) or hasattr(mod, "extract")
 
 

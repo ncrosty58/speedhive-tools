@@ -71,9 +71,9 @@ def extract(in_path: Path, out_path: Path) -> int:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Extract sessions NDJSON -> CSV")
-    p.add_argument("--input", type=Path, default=Path("output/full_dump/30476"), help="Input directory containing sessions.ndjson.gz")
+    p.add_argument("--input", type=Path, default=Path("output/30476"), help="Input directory containing sessions.ndjson.gz")
     p.add_argument("--in-file", type=Path, default=Path("sessions.ndjson.gz"), help="Input NDJSON filename (gzipped)")
-    p.add_argument("--out", type=Path, default=Path("output/full_dump/30476/sessions_flat.csv"), help="Output CSV file")
+    p.add_argument("--out", type=Path, default=Path("output/30476/sessions_flat.csv"), help="Output CSV file")
     args = p.parse_args(argv)
 
     in_path = args.input / args.in_file

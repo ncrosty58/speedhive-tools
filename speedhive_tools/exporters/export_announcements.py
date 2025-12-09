@@ -122,5 +122,39 @@ def main(argv: Optional[List[str]] = None) -> int:
         return export_org_announcements(client, args.org, output_dir, args.verbose)
 
 
+def fetch_announcements_for_org(client: SpeedhiveClient, org_id: int):
+    """Return a list of announcement objects organized by session/event for an org.
+
+    This returns a list of entries like {"event_id": ..., "event_name": ..., "sessions": [...]}
+    matching the shape used by the exporter main.
+    """
+    out = []
+    for event in client.iter_events(org_id=org_id):
+        event_id = event.get("id")
+        if not event_id:
+            continue
+        event_name = event.get("name", "Unknown")
+        sessions = client.get_sessions(event_id=event_id)
+        event_announcements = []
+        for session in sessions:
+            session_id = session.get("id")
+            if not session_id:
+                continue
+            announcements = client.get_announcements(session_id=session_id)
+            if announcements:
+                event_announcements.append({
+                    "session_id": session_id,
+                    "session_name": session.get("name"),
+                    "announcements": announcements,
+                })
+        if event_announcements:
+            out.append({
+                "event_id": event_id,
+                "event_name": event_name,
+                "sessions": event_announcements,
+            })
+    return out
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

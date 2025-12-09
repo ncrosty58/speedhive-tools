@@ -81,5 +81,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     return 0
 
 
+def fetch_results_for_session(client: SpeedhiveClient, session_id: int):
+    """Return classification/results for a session (used by export_full_dump orchestration)."""
+    return client.get_results(session_id=session_id)
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

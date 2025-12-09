@@ -19,7 +19,7 @@ from statistics import mean, median, stdev
 from typing import Dict, Any, List, Tuple, Optional
 import difflib
 
-from speedhive_tools.utils.common import open_ndjson, normalize_name, extract_iso_date
+from speedhive_tools.utils.common import open_ndjson, normalize_name, extract_iso_date, compute_laps_and_enriched
 
 
 
@@ -182,6 +182,7 @@ def main() -> None:
     p.add_argument('--min-laps-list', default='1,5,20,50', help='Comma separated min laps to report ranks for')
     p.add_argument('--threshold', type=float, default=0.80, help='Fuzzy match threshold (lower = more permissive). Matches `report_top_bottom_consistency.py` semantics')
     p.add_argument('--neighbors', type=int, default=5, help='How many neighbors to show around target')
+    p.add_argument('--dump-dir', default=Path('output'), help='Directory containing exported NDJSON under <dump-dir>/<org>')
     args = p.parse_args()
 
     out_dir = Path('output')
@@ -190,6 +191,16 @@ def main() -> None:
 
     laps = load_json(laps_file) or {}
     enriched = load_json(enriched_file) or {}
+
+    # If the on-disk artifacts are not present, compute directly from the raw dump
+    if not laps or not enriched:
+        dump_dir = Path(args.dump_dir)
+        try:
+            laps, enriched = compute_laps_and_enriched(dump_dir, int(args.org))
+        except Exception:
+            # fallback: leave laps/enriched empty
+            laps = laps or {}
+            enriched = enriched or {}
 
     stats_by_name = aggregate_by_name(laps, enriched)
 

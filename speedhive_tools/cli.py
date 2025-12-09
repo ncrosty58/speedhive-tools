@@ -4,82 +4,192 @@
 import argparse
 import sys
 from pathlib import Path
+import importlib
+import pkgutil
+import shlex
 
+
+def _ask(prompt, default=None, required=False, cast=str):
+    """Simple interactive prompt helper used by the CLI interactive menu."""
+    try:
+        prompt_str = f"{prompt}"
+        if default is not None and default != "":
+            prompt_str += f" [{default}]"
+        prompt_str += ": "
+        val = input(prompt_str)
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+    if val == "" and default is not None:
+        val = default
+
+    if required and (val is None or val == ""):
+        print("Value required")
+        return _ask(prompt, default=default, required=required, cast=cast)
+
+    if val == "":
+        return val
+
+    try:
+        return cast(val)
+    except Exception:
+        print("Invalid value")
+        return _ask(prompt, default=default, required=required, cast=cast)
+
+
+def _discover_modules():
+    """Discover exporter/processor/analyzer modules under the package.
+
+    Returns a list of tuples: (command_name, module_object, category)
+    where `command_name` is the hyphenated name used on the CLI.
+    """
+    found = []
+    for pkg_name, category in (
+        ("speedhive_tools.exporters", "exporters"),
+        ("speedhive_tools.processors", "processors"),
+        ("speedhive_tools.analyzers", "analyzers"),
+    ):
+        try:
+            pkg = importlib.import_module(pkg_name)
+        except Exception:
+            continue
+
+        if not hasattr(pkg, "__path__"):
+            continue
+
+        for finder, name, ispkg in pkgutil.iter_modules(pkg.__path__):
+            full_name = f"{pkg_name}.{name}"
+            try:
+                mod = importlib.import_module(full_name)
+            except Exception:
+                # skip modules that fail to import at discovery time
+                continue
+
+            # treat presence of a callable `main` as indicating a runnable command
+            if hasattr(mod, "main") and callable(getattr(mod, "main")):
+                cmd = name.replace("_", "-")
+                found.append((cmd, mod, category))
+
+    return found
 
 def main():
     parser = argparse.ArgumentParser(
         description="Speedhive Tools - Utilities for MyLaps Event Results API",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  speedhive export-full-dump --org 30476 --output ./output/full_dump
-  speedhive process-full-dump --org 30476
-  speedhive extract-driver-laps --org 30476 --driver "Nathan Crosty"
-  speedhive report-consistency --org 30476
-        """
+        Examples:
+            speedhive export-full-dump --org 30476 --output ./output
+            speedhive process-full-dump --org 30476
+    """
     )
+    # register subparsers (discovered modules only)
+    subparsers = parser.add_subparsers(dest="command")
 
-    subparsers = parser.add_subparsers(dest='command', help='Available commands')
-
-    # Export full dump
-    export_parser = subparsers.add_parser(
-        'export-full-dump',
-        help='Export complete data dump for an organization'
-    )
-    export_parser.add_argument('--org', type=int, required=True, help='Organization ID')
-    export_parser.add_argument('--output', type=Path, default=Path('./output/full_dump'),
-                              help='Output directory (default: ./output/full_dump)')
-    export_parser.add_argument('--verbose', action='store_true', help='Verbose output')
-    export_parser.add_argument('--no-resume', action='store_true', help='Do not resume from existing files')
-    export_parser.add_argument('--max-events', type=int, help='Limit number of events to export')
-    export_parser.add_argument('--concurrency', type=int, default=5, help='Concurrent requests (default: 5)')
-
-    # Process full dump
-    process_parser = subparsers.add_parser(
-        'process-full-dump',
-        help='Process raw dump data into aggregated files'
-    )
-    process_parser.add_argument('--org', type=int, required=True, help='Organization ID')
-    process_parser.add_argument('--dump-dir', type=Path, default=Path('./output/full_dump'),
-                               help='Input dump directory (default: ./output/full_dump)')
-    process_parser.add_argument('--out-dir', type=Path, default=Path('./output'),
-                               help='Output directory (default: ./output)')
-
-    # Extract driver laps
-    extract_parser = subparsers.add_parser(
-        'extract-driver-laps',
-        help='Extract lap data for a specific driver'
-    )
-    extract_parser.add_argument('--org', type=int, required=True, help='Organization ID')
-    extract_parser.add_argument('--driver', '--name', required=True, help='Driver name to search for')
-    extract_parser.add_argument('--driver-keys', help='Comma-separated driver_key values (skip fuzzy matching)')
-    extract_parser.add_argument('--dump-dir', type=Path, default=Path('./output/full_dump'),
-                               help='Dump directory (default: ./output/full_dump)')
-    extract_parser.add_argument('--out-dir', type=Path, default=Path('./output'),
-                               help='Output directory (default: ./output)')
-    extract_parser.add_argument('--threshold', type=float, default=0.8, help='Fuzzy match threshold (default: 0.8)')
-    extract_parser.add_argument('--min-laps', type=int, default=1, help='Minimum lap count (default: 1)')
-
-    # Report driver consistency
-    consistency_parser = subparsers.add_parser(
-        'report-consistency',
-        help='Report top/bottom most consistent drivers'
-    )
-    consistency_parser.add_argument('--org', type=int, required=True, help='Organization ID')
-    consistency_parser.add_argument('--dump-dir', type=Path, default=Path('./output/full_dump'),
-                                   help='Dump directory (default: ./output/full_dump)')
-    consistency_parser.add_argument('--out-dir', type=Path, default=Path('./output'),
-                                   help='Output directory (default: ./output)')
-    consistency_parser.add_argument('--min-laps', type=int, default=20, help='Minimum laps to consider (default: 20)')
-    consistency_parser.add_argument('--top', type=int, default=10, help='Number of top drivers to show (default: 10)')
-    consistency_parser.add_argument('--threshold', type=float, default=0.85, help='Name similarity threshold (default: 0.85)')
-    consistency_parser.add_argument('--driver', '--name', dest='driver', help='Specific driver to check percentile for')
+    # Auto-register discovered modules: prefer module-provided `register_subparser`
+    for cmd, mod, cat in _discover_modules():
+        try:
+            sp = subparsers.add_parser(cmd, help=f"{cat} ({cmd})")
+            if hasattr(mod, "register_subparser") and callable(getattr(mod, "register_subparser")):
+                try:
+                    mod.register_subparser(sp)
+                    sp.set_defaults(_speedhive_module=mod, _speedhive_cmd=cmd)
+                except Exception:
+                    # fallback to passthrough if registration fails
+                    sp.add_argument("extra_args", nargs=argparse.REMAINDER)
+                    sp.set_defaults(_speedhive_module=mod, _speedhive_cmd=cmd)
+            else:
+                sp.add_argument("extra_args", nargs=argparse.REMAINDER)
+                sp.set_defaults(_speedhive_module=mod, _speedhive_cmd=cmd)
+        except Exception:
+            # ignore discovery/registration errors
+            continue
 
     args = parser.parse_args()
 
+    # If a discovered module was registered, dispatch to it directly
+    mod = getattr(args, "_speedhive_module", None)
+    if mod is not None:
+        extra = getattr(args, "extra_args", None)
+        try:
+            # Many module mains accept an argv list; pass extra when present
+            return mod.main(argv=extra if extra is not None else None)
+        except SystemExit:
+            return 0
+
+    print("Speedhive Tools - Interactive Mode")
+    while True:
+        discovered = _discover_modules()
+        cats = {'exporters': [], 'processors': [], 'analyzers': []}
+        for cmd, mod, cat in discovered:
+            cats.setdefault(cat, []).append((cmd, mod))
+
+        print("\nDiscovered commands:\n")
+        idx = 1
+        idx_map = {}
+        for cat in ('exporters', 'processors', 'analyzers'):
+            items = cats.get(cat, [])
+            if not items:
+                continue
+            print(f"{cat.title()}: ")
+            for cmd, mod in items:
+                print(f" {idx}) {cmd}")
+                idx_map[idx] = (cmd, mod)
+                idx += 1
+            print("")
+
+        print(f" {idx}) Exit")
+
+        choice = _ask("Enter choice", default=str(idx))
+        if choice is None:
+            continue
+        try:
+            choice_i = int(choice)
+        except Exception:
+            print("Please enter a valid number.")
+            continue
+
+        if choice_i == idx:
+            print("Goodbye.")
+            return 0
+
+        if choice_i not in idx_map:
+            print("Invalid choice")
+            continue
+
+        cmd, module = idx_map[choice_i]
+        extra = _ask("Extra args (e.g. --org 30476)", default="", cast=str)
+        argv_list = shlex.split(extra) if extra else []
+
+    # Convenience: if user supplied --org but not --dump-dir and an export exists,
+    # prefer using `output/<org>` as the dump directory so analyzers/processors
+    # operate on the exported dump by default.
+        try:
+            if "--org" in argv_list and "--dump-dir" not in argv_list:
+                # find the org value following --org
+                try:
+                    i = argv_list.index("--org")
+                    org_val = argv_list[i + 1]
+                except Exception:
+                    org_val = None
+                if org_val:
+                    candidate = Path("output") / str(org_val)
+                    if candidate.exists():
+                        argv_list.extend(["--dump-dir", str(Path("output"))])
+
+            # prefer modules that accept argv parameter
+            try:
+                module.main(argv=argv_list if argv_list else None)
+            except TypeError:
+                # fallback: set sys.argv and call main()
+                sys_argv = [f"{cmd}.py"] + (argv_list if argv_list else [])
+                sys.argv = sys_argv
+                module.main()
+        except SystemExit:
+            pass
+
+    # If no subcommand was provided, run interactive menu
     if not args.command:
-        parser.print_help()
-        return 1
+        return interactive_menu()
 
     try:
         if args.command == 'export-full-dump':
@@ -103,7 +213,7 @@ Examples:
             # Convert args
             sys.argv = ['process_full_dump.py',
                        '--org', str(args.org)]
-            if args.dump_dir != Path('./output/full_dump'):
+            if args.dump_dir != Path('./output'):
                 sys.argv.extend(['--dump-dir', str(args.dump_dir)])
             if args.out_dir != Path('./output'):
                 sys.argv.extend(['--out-dir', str(args.out_dir)])
@@ -117,7 +227,7 @@ Examples:
                        '--driver', args.driver]
             if args.driver_keys:
                 sys.argv.extend(['--driver-keys', args.driver_keys])
-            if args.dump_dir != Path('./output/full_dump'):
+            if args.dump_dir != Path('./output'):
                 sys.argv.extend(['--dump-dir', str(args.dump_dir)])
             if args.out_dir != Path('./output'):
                 sys.argv.extend(['--out-dir', str(args.out_dir)])
@@ -132,7 +242,7 @@ Examples:
             # Convert args
             sys.argv = ['report_top_bottom_consistency.py',
                        '--org', str(args.org)]
-            if args.dump_dir != Path('./output/full_dump'):
+            if args.dump_dir != Path('./output'):
                 sys.argv.extend(['--dump-dir', str(args.dump_dir)])
             if args.out_dir != Path('./output'):
                 sys.argv.extend(['--out-dir', str(args.out_dir)])

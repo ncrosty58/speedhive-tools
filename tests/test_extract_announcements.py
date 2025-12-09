@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from examples.processing.extract_announcements_to_csv import extract
+from speedhive_tools.processors.extract_announcements_to_csv import extract
 
 
 def make_ndjson_gz(path: Path, lines: list):

@@ -88,5 +88,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     return 0
 
 
+def fetch_events_for_org(client: SpeedhiveClient, org_id: int, limit: Optional[int] = None):
+    """Return list of events for org (used by export_full_dump orchestration)."""
+    if limit:
+        return client.get_events(org_id=org_id, limit=limit)
+    return list(client.iter_events(org_id=org_id))
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
