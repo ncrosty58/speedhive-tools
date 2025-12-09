@@ -19,6 +19,8 @@ from statistics import mean, median, stdev
 from typing import Dict, Any, List, Tuple, Optional
 import difflib
 
+from speedhive_tools.utils.common import open_ndjson, normalize_name, extract_iso_date
+
 
 
 
@@ -69,52 +71,6 @@ def aggregate_by_name(laps_by_driver: Dict[str, List[float]], enriched: Dict[str
             'mad': md,
         }
     return stats_by_name
-
-
-def load_ndjson(path: Path):
-    if not path.exists():
-        return
-    fh = open(path, "r", encoding="utf8")
-    for ln in fh:
-        ln = ln.strip()
-        if not ln:
-            continue
-        try:
-            yield json.loads(ln)
-        except Exception:
-            continue
-    fh.close()
-
-
-def normalize_name(n: str) -> str:
-    if not n:
-        return ""
-    s = n.lower()
-    s = re.sub(r"\s+", " ", s)
-    s = re.sub(r"[^a-z0-9 ]", "", s)
-    return s.strip()
-
-
-def extract_iso_date(raw: Dict) -> Optional[str]:
-    if not isinstance(raw, dict):
-        return None
-    # common keys
-    keys = ("startTime", "start_time", "start", "date", "startAt", "startDateTime", "eventDate", "event_date", "scheduledAt")
-    for k in keys:
-        v = raw.get(k)
-        if not v:
-            continue
-        if isinstance(v, (int, float)):
-            ts = float(v)
-            if ts > 1e12:
-                ts = ts / 1000.0
-            try:
-                return datetime.utcfromtimestamp(ts).isoformat() + "Z"
-            except Exception:
-                continue
-        if isinstance(v, str):
-            return v
-    return None
 
 
 def session_classification(session_raw: Dict) -> Optional[str]:

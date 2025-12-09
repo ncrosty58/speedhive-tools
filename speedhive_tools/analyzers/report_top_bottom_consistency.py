@@ -26,20 +26,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-
-def open_ndjson(path: Path):
-    if not path.exists():
-        return
-    fh = gzip.open(path, "rt", encoding="utf8") if path.suffix == ".gz" or path.name.endswith('.gz') else open(path, "r", encoding="utf8")
-    for ln in fh:
-        ln = ln.strip()
-        if not ln:
-            continue
-        try:
-            yield json.loads(ln)
-        except Exception:
-            continue
-    fh.close()
+from speedhive_tools.utils.common import open_ndjson, normalize_name
 
 
 def load_enriched(out_dir: Path, org: int) -> Dict[str, Dict]:
@@ -151,13 +138,6 @@ def aggregate_by_name(enriched: Dict[str, Dict], session_map: Dict[str, Dict]) -
             "cv": pooled_cv,
         }
     return by_name
-
-
-def normalize_name(name: str) -> str:
-    s = (name or "").lower()
-    s = re.sub(r"\s+", " ", s)
-    s = re.sub(r"[^a-z0-9 ]", "", s)
-    return s.strip()
 
 
 def cluster_names(by_name: Dict[str, Dict], threshold: float = 0.85) -> Dict[str, Dict]:

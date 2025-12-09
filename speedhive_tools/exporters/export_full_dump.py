@@ -29,7 +29,7 @@ import time
 import os
 import inspect
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "mylaps_client"))
 
 from event_results_client import Client, AuthenticatedClient

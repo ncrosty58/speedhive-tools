@@ -13,67 +13,20 @@ Outputs a JSON file in `output/` named `driver_laps_<org>_<sanitized_name>.json`
 - session_keys: list of session-position keys included
 
 Run example:
-    python3 examples/fun/extract_driver_laps.py --org 30476 --driver "Ryan Carwile"
+    python3 examples/fun/extract_driver_laps.py --org 30476 --driver "Nathan Crosty"
 """
 from __future__ import annotations
 
 import argparse
 import gzip
 import json
-import math
 import re
 from datetime import datetime
 from pathlib import Path
 from statistics import mean, median, stdev
 from typing import Any, Dict, List
 import difflib
-
-
-def open_ndjson(path: Path):
-    if not path.exists():
-        return
-    fh = gzip.open(path, "rt", encoding="utf8") if path.suffix == ".gz" or path.name.endswith(".gz") else open(path, "r", encoding="utf8")
-    for ln in fh:
-        ln = ln.strip()
-        if not ln:
-            continue
-        try:
-            yield json.loads(ln)
-        except Exception:
-            continue
-    fh.close()
-
-
-def normalize_name(name: str) -> str:
-    s = (name or "").lower()
-    s = re.sub(r"\s+", " ", s)
-    s = re.sub(r"[^a-z0-9 ]", "", s)
-    return s.strip()
-
-
-def _extract_iso_date(raw: Dict) -> str | None:
-    if not isinstance(raw, dict):
-        return None
-    # common keys that may contain a date or timestamp
-    keys = ("startTime", "start_time", "start", "date", "startAt", "startDateTime", "eventDate", "event_date", "scheduledAt")
-    for k in keys:
-        v = raw.get(k)
-        if not v:
-            continue
-        # numeric epoch (ms or s)
-        if isinstance(v, (int, float)):
-            ts = float(v)
-            # heuristic: >1e12 -> milliseconds
-            if ts > 1e12:
-                ts = ts / 1000.0
-            try:
-                return datetime.utcfromtimestamp(ts).isoformat() + "Z"
-            except Exception:
-                continue
-        # string: return as-is (assume already formatted)
-        if isinstance(v, str):
-            return v
-    return None
+from speedhive_tools.utils.common import open_ndjson, extract_iso_date, load_session_map, normalize_name
 
 
 def is_race_session(session_raw: Dict) -> bool:
@@ -90,24 +43,6 @@ def is_race_session(session_raw: Dict) -> bool:
         if isinstance(v, str) and "race" in v.lower():
             return True
     return False
-
-
-def load_session_map(dump_dir: Path, org: int) -> Dict[str, Dict]:
-    dump = dump_dir / str(org)
-    sess_path = dump / "sessions.ndjson.gz"
-    if not sess_path.exists():
-        sess_path = dump / "sessions.ndjson"
-    mapping: Dict[str, Dict] = {}
-    if not sess_path.exists():
-        return mapping
-    for obj in open_ndjson(sess_path):
-        sid = obj.get("session_id") or obj.get("sessionId") or (obj.get("raw") or {}).get("id")
-        if sid is None:
-            continue
-        sid = str(int(sid))
-        raw = obj.get("raw") or obj
-        mapping[sid] = raw
-    return mapping
 
 
 def load_enriched(out_dir: Path, org: int) -> Dict[str, Dict]:
@@ -282,14 +217,14 @@ def main(argv=None) -> int:
             event_name = session_raw.get("event_name") or session_raw.get("eventName") or (session_raw.get("event") or {}).get("name") or (session_raw.get("raw") or {}).get("eventName")
             # session/event dates
             try:
-                session_date = _extract_iso_date(session_raw)
+                session_date = extract_iso_date(session_raw)
             except Exception:
                 session_date = None
             try:
                 event_raw = session_raw.get("event") or (session_raw.get("raw") or {}).get("event") or {}
-                event_date = _extract_iso_date(event_raw) or _extract_iso_date(session_raw)
+                event_date = extract_iso_date(event_raw) or extract_iso_date(session_raw)
             except Exception:
-                event_date = _extract_iso_date(session_raw)
+                event_date = extract_iso_date(session_raw)
 
         for lap in laps:
             try:

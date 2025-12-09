@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
-import math
 import re
 from collections import defaultdict
 from datetime import datetime
@@ -23,51 +22,10 @@ from typing import Any, Dict, List, Optional
 import csv
 import statistics
 
+from speedhive_tools.utils.common import open_ndjson, parse_time_value
+
 
 _time_re = re.compile(r"(?:(\d+):)?(\d+)(?:\.(\d+))?")
-
-
-def parse_time_value(v: Any) -> Optional[float]:
-    if v is None:
-        return None
-    if isinstance(v, (int, float)):
-        return float(v)
-    s = str(v).strip()
-    if not s:
-        return None
-    try:
-        return float(s)
-    except Exception:
-        pass
-    m = _time_re.search(s)
-    if m:
-        mins = m.group(1)
-        secs = m.group(2)
-        frac = m.group(3) or "0"
-        total = (int(mins) * 60 if mins else 0) + int(secs) + float("0." + frac)
-        return float(total)
-    m2 = re.search(r"(\d+\.\d+|\d+)", s)
-    if m2:
-        try:
-            return float(m2.group(1))
-        except Exception:
-            return None
-    return None
-
-
-def open_ndjson(path: Path):
-    if not path.exists():
-        return []
-    fh = gzip.open(path, "rt", encoding="utf8") if path.suffix == ".gz" or path.name.endswith(".gz") else open(path, "r", encoding="utf8")
-    for ln in fh:
-        ln = ln.strip()
-        if not ln:
-            continue
-        try:
-            yield json.loads(ln)
-        except Exception:
-            continue
-    fh.close()
 
 
 def load_sessions(sess_path: Path) -> Dict[str, Dict]:
