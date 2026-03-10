@@ -397,9 +397,12 @@ class SpeedhiveClient:
         #                or "New Class Record (1:17.129) for IT7 by Bob Cross."
         from speedhive_tools.utils.track_records import parse_track_record_text
 
-        events = self.get_events(org_id=org_id, limit=limit_events or 10000)
-        
-        for event in events:
+        event_iterator = self.iter_events(org_id=org_id)
+        if limit_events:
+            from itertools import islice
+            event_iterator = islice(event_iterator, limit_events)
+
+        for event in event_iterator:
             event_id = event.get("id")
             event_name = event.get("name")
             
