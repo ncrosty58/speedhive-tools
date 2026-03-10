@@ -223,3 +223,4 @@ dump/
 # Output directories for example runs
 output/
 announcements/
+nohup.out
