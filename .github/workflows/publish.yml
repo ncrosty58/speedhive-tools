@@ -33,6 +33,16 @@ jobs:
       - name: Build distributions
         run: python -m build
 
+      - name: Smoke-test built wheel
+        shell: bash
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --quiet dist/*.whl
+          /tmp/smoke/bin/python -c "from mylaps_client_wrapper import SpeedhiveClient; SpeedhiveClient()"
+          /tmp/smoke/bin/python -c "from event_results_client import Client, AuthenticatedClient"
+          /tmp/smoke/bin/python -c "import speedhive_tools"
+          echo "Smoke test passed — wheel contains all expected packages"
+
       - name: Publish to PyPI
         env:
           TWINE_USERNAME: __token__

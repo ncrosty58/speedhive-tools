@@ -18,21 +18,29 @@ Command-line toolkit and client wrapper for the MyLaps Event Results API (export
 
 ## Installation
 
-From PyPI:
+### From PyPI
 
 ```bash
 pip install speedhive-tools
 ```
 
-From source (developer):
+Verify the install:
+
+```bash
+python -c "from mylaps_client_wrapper import SpeedhiveClient; SpeedhiveClient(); print('OK')"
+```
+
+### From source
 
 ```bash
 git clone https://github.com/ncrosty58/speedhive-tools.git
 cd speedhive-tools
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+python -m venv .venv && source .venv/bin/activate    # or .venv\Scripts\activate on Windows
 pip install -e .
 ```
+
+The generated OpenAPI client (`event_results_client`) is bundled into the wheel
+automatically — no separate install needed.
 
 ## Primary Usage — `speedhive` CLI
 

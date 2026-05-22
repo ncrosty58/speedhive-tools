@@ -1,3 +1,51 @@
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "speedhive-tools"
+version = "0.1.8"
+description = "Utilities for the MyLaps Event Results API"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Nathan Crosty" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "httpx>=0.23.0,<0.29.0",
+    "attrs>=22.2.0",
+    "python-dateutil>=2.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ncrosty58/speedhive-tools"
+Issues = "https://github.com/ncrosty58/speedhive-tools/issues"
+
+[project.scripts]
+speedhive = "speedhive_tools.cli:main"
+processor-cli = "examples.processing.processor_cli:main"
+
+[tool.setuptools]
+py-modules = ["mylaps_client_wrapper"]
+
+# The generated OpenAPI client lives at mylaps_client/event_results_client/
+# in the repo but ships as the top-level `event_results_client` package on
+# install. Scanning `mylaps_client` as a second `where` root lets find pick
+# it up automatically and install it at top level (the wrapper imports it
+# as `from event_results_client import Client`).
+[tool.setuptools.packages.find]
+where = [".", "mylaps_client"]
+include = ["speedhive_tools*", "examples*", "event_results_client*"]
+exclude = ["tests*", ".venv*", "build*", "dist*"]
+
+[tool.setuptools.package-data]
+event_results_client = ["py.typed"]
