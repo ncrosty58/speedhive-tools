@@ -1,12 +1,12 @@
-"""Extract sessions NDJSON to flat CSV."""
+"""Stream sessions.ndjson(.gz) from an offline dump and write a flattened CSV."""
 from __future__ import annotations
 
 import argparse
 import csv
-import gzip
-import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
+
+from speedhive.processing.ndjson import open_ndjson
 
 
 def _iter_sessions(record: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
@@ -33,47 +33,49 @@ def normalize_session(session: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+_FIELDS = ["event_id", "session_id", "name", "start_time", "end_time"]
+
+
 def extract(in_path: Path, out_path: Path) -> int:
-    """Write flat sessions CSV from sessions NDJSON(.gz)."""
-    fieldnames = ["event_id", "session_id", "name", "start_time", "end_time"]
+    """Write flat sessions CSV from sessions NDJSON(.gz). Returns row count."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     count = 0
-    opener = gzip.open if (in_path.suffix == ".gz" or in_path.name.endswith(".gz")) else open
-    with opener(in_path, "rt", encoding="utf8") as in_fh, out_path.open("w", encoding="utf8", newline="") as out_fh:
-        writer = csv.DictWriter(out_fh, fieldnames=fieldnames, extrasaction="ignore")
+    with out_path.open("w", encoding="utf8", newline="") as out_fh:
+        writer = csv.DictWriter(out_fh, fieldnames=_FIELDS, extrasaction="ignore")
         writer.writeheader()
-        for line in in_fh:
-            if not line.strip():
-                continue
-            record = json.loads(line)
+        for record in open_ndjson(in_path):
             for session in _iter_sessions(record):
                 normalized = normalize_session(session)
-                writer.writerow(
-                    {
-                        "event_id": record.get("event_id") or record.get("eventId") or normalized.get("event_id"),
-                        "session_id": normalized.get("session_id"),
-                        "name": normalized.get("name"),
-                        "start_time": normalized.get("start_time"),
-                        "end_time": normalized.get("end_time"),
-                    }
-                )
+                writer.writerow({
+                    "event_id": record.get("event_id") or record.get("eventId") or normalized.get("event_id"),
+                    "session_id": normalized.get("session_id"),
+                    "name": normalized.get("name"),
+                    "start_time": normalized.get("start_time"),
+                    "end_time": normalized.get("end_time"),
+                })
                 count += 1
     return count
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Extract sessions NDJSON -> CSV")
-    parser.add_argument("--input", type=Path, default=Path("output/30476"))
-    parser.add_argument("--in-file", type=Path, default=Path("sessions.ndjson.gz"))
-    parser.add_argument("--out", type=Path, default=Path("output/30476/sessions_flat.csv"))
+    parser = argparse.ArgumentParser(description="Extract sessions NDJSON -> flat CSV")
+    parser.add_argument("--org", type=int, required=True, help="Organization ID")
+    parser.add_argument("--dump-dir", type=Path, default=Path("./output"), help="Root dump directory")
+    parser.add_argument("--out-dir", type=Path, default=None, help="Output directory (defaults to dump-dir/<org>/)")
     args = parser.parse_args(argv)
 
-    in_path = args.input / args.in_file
+    dump = args.dump_dir / str(args.org)
+    in_path = dump / "sessions.ndjson.gz"
+    if not in_path.exists():
+        in_path = dump / "sessions.ndjson"
     if not in_path.exists():
         print("Input file not found:", in_path)
         return 2
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    count = extract(in_path, args.out)
-    print(f"Wrote {count} sessions to {args.out}")
+
+    out_dir = args.out_dir or dump
+    out_path = out_dir / "sessions_flat.csv"
+    count = extract(in_path, out_path)
+    print(f"Wrote {count} sessions to {out_path}")
     return 0
 
 

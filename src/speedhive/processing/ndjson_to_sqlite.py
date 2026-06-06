@@ -1,4 +1,4 @@
-"""Import laps NDJSON(.gz) into a lightweight SQLite table."""
+"""Import laps NDJSON(.gz) from an offline dump into a lightweight SQLite table."""
 from __future__ import annotations
 
 import argparse
@@ -44,16 +44,24 @@ def ingest_laps(in_path: Path, db_path: Path) -> int:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Import laps NDJSON(.gz) into SQLite")
-    parser.add_argument("--input", type=Path, default=Path("output/30476/laps.ndjson.gz"))
-    parser.add_argument("--out", type=Path, default=Path("output/30476/dump.db"))
+    parser = argparse.ArgumentParser(description="Import laps NDJSON(.gz) from offline dump into SQLite")
+    parser.add_argument("--org", type=int, required=True, help="Organization ID")
+    parser.add_argument("--dump-dir", type=Path, default=Path("./output"), help="Root dump directory")
+    parser.add_argument("--out-dir", type=Path, default=None, help="Output directory for SQLite DB (defaults to dump-dir/<org>/)")
     args = parser.parse_args(argv)
 
-    if not args.input.exists():
-        print("Input file not found:", args.input)
+    dump = args.dump_dir / str(args.org)
+    in_path = dump / "laps.ndjson.gz"
+    if not in_path.exists():
+        in_path = dump / "laps.ndjson"
+    if not in_path.exists():
+        print("Input file not found:", in_path)
         return 2
-    inserted = ingest_laps(args.input, args.out)
-    print(f"Inserted {inserted} rows into {args.out}")
+
+    out_dir = args.out_dir or dump
+    db_path = out_dir / f"laps_{args.org}.db"
+    inserted = ingest_laps(in_path, db_path)
+    print(f"Inserted {inserted} rows into {db_path}")
     return 0
 
 

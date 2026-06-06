@@ -1,29 +1,21 @@
-"""Stream `announcements.ndjson.gz` and write a flattened CSV of announcements.
-
-The announcements payloads vary (sometimes a list, sometimes `rows` inside).
-This script normalizes common shapes and writes a CSV for simple analysis.
-
-Usage:
-  python examples/processing/extract_announcements_to_csv.py --input output/full_dump/30476 --out output/full_dump/30476/announcements_flat.csv
-"""
+"""Stream announcements.ndjson(.gz) from an offline dump and write a flattened CSV."""
 from __future__ import annotations
 
 import argparse
 import csv
-import gzip
 import json
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
-from collections import defaultdict
+
+from speedhive.processing.ndjson import open_ndjson
 
 
 def _iter_announcements(rec: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
-    # rec often contains event_id/session_id and either `rows` or a list of announcements
     if not rec:
         return []
     if isinstance(rec, list):
         return rec
-    # some exporters wrap announcements under an `announcements` key
     if rec.get("announcements"):
         a = rec.get("announcements")
         if isinstance(a, list):
@@ -32,7 +24,6 @@ def _iter_announcements(rec: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
             return a.get("rows")
     if rec.get("rows"):
         return rec.get("rows")
-    # fallback: maybe the announcements are the record itself
     if rec.get("announcement"):
         return [rec.get("announcement")]
     return []
@@ -42,49 +33,45 @@ def normalize_announcement(a: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "text": a.get("text") or a.get("message") or a.get("body"),
         "ts": a.get("time") or a.get("timestamp") or a.get("ts"),
-        "raw": a,
     }
 
 
+_FIELDS = ["event_id", "session_id", "ts", "text"]
+
+
 def extract(in_path: Path, out_path: Path) -> int:
-    in_path = in_path.expanduser()
-    out_path = out_path.expanduser()
-    with gzip.open(in_path, "rt", encoding="utf8") as inf, out_path.open("w", encoding="utf8", newline="") as outf:
-        fieldnames = ["event_id", "session_id", "ts", "text"]
-        writer = csv.DictWriter(outf, fieldnames=fieldnames, extrasaction="ignore")
+    """Extract announcements from NDJSON(.gz) to CSV. Returns row count."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    by_event: Dict[str, int] = defaultdict(int)
+    by_session: Dict[str, int] = defaultdict(int)
+    with out_path.open("w", encoding="utf8", newline="") as outf:
+        writer = csv.DictWriter(outf, fieldnames=_FIELDS, extrasaction="ignore")
         writer.writeheader()
-        count = 0
-        by_event: Dict[str, int] = defaultdict(int)
-        by_session: Dict[str, int] = defaultdict(int)
-        for line in inf:
-            if not line.strip():
-                continue
-            rec: Dict[str, Any] = json.loads(line)
+        for rec in open_ndjson(in_path):
+            event_id = rec.get("event_id") or rec.get("eventId")
+            session_id = rec.get("session_id") or rec.get("sessionId")
             for a in _iter_announcements(rec):
                 n = normalize_announcement(a)
                 writer.writerow({
-                    "event_id": rec.get("event_id") or rec.get("eventId"),
-                    "session_id": rec.get("session_id") or rec.get("sessionId"),
+                    "event_id": event_id,
+                    "session_id": session_id,
                     "ts": n.get("ts"),
                     "text": n.get("text"),
                 })
                 count += 1
-                # update summary counters
-                ev = rec.get("event_id") or rec.get("eventId")
-                sid = rec.get("session_id") or rec.get("sessionId")
-                if ev is not None:
-                    by_event[str(ev)] += 1
-                if sid is not None:
-                    by_session[str(sid)] += 1
-    # write a small JSON summary next to the CSV output
+                if event_id is not None:
+                    by_event[str(event_id)] += 1
+                if session_id is not None:
+                    by_session[str(session_id)] += 1
+
+    summary_path = out_path.parent / "announcements_summary.json"
     try:
-        summary = {
-            "total": count,
-            "by_event": dict(by_event),
-            "by_session": dict(by_session),
-        }
-        summary_path = out_path.parent / "announcements_summary.json"
-        summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf8")
+        summary_path.write_text(
+            json.dumps({"total": count, "by_event": dict(by_event), "by_session": dict(by_session)},
+                       ensure_ascii=False, indent=2),
+            encoding="utf8",
+        )
         print(f"Wrote summary to {summary_path}")
     except Exception as exc:
         print("Failed to write summary:", exc)
@@ -93,19 +80,22 @@ def extract(in_path: Path, out_path: Path) -> int:
 
 
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(description="Extract announcements NDJSON -> CSV")
-    p.add_argument("--input", type=Path, default=Path("output/30476"), help="Input directory containing announcements.ndjson.gz")
-    p.add_argument("--in-file", type=Path, default=Path("announcements.ndjson.gz"), help="Input NDJSON filename (gzipped)")
-    p.add_argument("--out", type=Path, default=Path("output/30476/announcements_flat.csv"), help="Output CSV file")
+    p = argparse.ArgumentParser(description="Extract announcements NDJSON -> flat CSV")
+    p.add_argument("--org", type=int, required=True, help="Organization ID")
+    p.add_argument("--dump-dir", type=Path, default=Path("./output"), help="Root dump directory")
+    p.add_argument("--out-dir", type=Path, default=None, help="Output directory (defaults to dump-dir/<org>/)")
     args = p.parse_args(argv)
 
-    in_path = args.input / args.in_file
+    dump = args.dump_dir / str(args.org)
+    in_path = dump / "announcements.ndjson.gz"
+    if not in_path.exists():
+        in_path = dump / "announcements.ndjson"
     if not in_path.exists():
         print("Input file not found:", in_path)
         return 2
 
-    out_path = args.out
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_dir = args.out_dir or dump
+    out_path = out_dir / "announcements_flat.csv"
     count = extract(in_path, out_path)
     print(f"Wrote {count} announcements to {out_path}")
     return 0

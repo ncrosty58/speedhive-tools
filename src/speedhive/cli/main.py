@@ -44,7 +44,9 @@ def _extract_driver_laps(args):
 def _extract_track_records(args):
     argv = ["--org", str(args.org)]
     if args.classification: argv.extend(["--classification", args.classification])
-    if args.limit_events: argv.extend(["--limit-events", str(args.limit_events)])
+    if args.dump_dir != Path("./output"): argv.extend(["--dump-dir", str(args.dump_dir)])
+    if args.format != "json": argv.extend(["--format", args.format])
+    if args.out_dir: argv.extend(["--out-dir", str(args.out_dir)])
     if args.output: argv.extend(["--output", str(args.output)])
     return _run_module_as_main("speedhive.analyzers.extract_track_records", argv)
 
@@ -64,6 +66,36 @@ def _refresh_org_cache(args):
     if args.token:
         argv.extend(["--token", args.token])
     return _run_module_as_main("speedhive.exporters.refresh_org_cache", argv)
+
+def _extract_events_csv(args):
+    argv = ["--org", str(args.org)]
+    if args.dump_dir != Path("./output"): argv.extend(["--dump-dir", str(args.dump_dir)])
+    if args.out_dir: argv.extend(["--out-dir", str(args.out_dir)])
+    return _run_module_as_main("speedhive.processing.extract_events_to_csv", argv)
+
+def _extract_sessions_csv(args):
+    argv = ["--org", str(args.org)]
+    if args.dump_dir != Path("./output"): argv.extend(["--dump-dir", str(args.dump_dir)])
+    if args.out_dir: argv.extend(["--out-dir", str(args.out_dir)])
+    return _run_module_as_main("speedhive.processing.extract_sessions_to_csv", argv)
+
+def _extract_laps_csv(args):
+    argv = ["--org", str(args.org)]
+    if args.dump_dir != Path("./output"): argv.extend(["--dump-dir", str(args.dump_dir)])
+    if args.out_dir: argv.extend(["--out-dir", str(args.out_dir)])
+    return _run_module_as_main("speedhive.processing.extract_laps_to_csv", argv)
+
+def _extract_announcements_csv(args):
+    argv = ["--org", str(args.org)]
+    if args.dump_dir != Path("./output"): argv.extend(["--dump-dir", str(args.dump_dir)])
+    if args.out_dir: argv.extend(["--out-dir", str(args.out_dir)])
+    return _run_module_as_main("speedhive.processing.extract_announcements_to_csv", argv)
+
+def _laps_to_sqlite(args):
+    argv = ["--org", str(args.org)]
+    if args.dump_dir != Path("./output"): argv.extend(["--dump-dir", str(args.dump_dir)])
+    if args.out_dir: argv.extend(["--out-dir", str(args.out_dir)])
+    return _run_module_as_main("speedhive.processing.ndjson_to_sqlite", argv)
 
 def main():
     parser = argparse.ArgumentParser(description="Speedhive Tools")
@@ -98,11 +130,13 @@ def main():
     p.add_argument("--min-laps", type=int, default=1)
     p.set_defaults(func=_extract_driver_laps)
 
-    p = sub.add_parser("extract-track-records", help="Extract track records")
+    p = sub.add_parser("extract-track-records", help="Extract track records from announcements dump")
     p.add_argument("--org", type=int, required=True)
     p.add_argument("--classification", default=None)
-    p.add_argument("--limit-events", type=int, default=None)
-    p.add_argument("--output", default=None)
+    p.add_argument("--dump-dir", type=Path, default=Path("./output"))
+    p.add_argument("--format", choices=["json", "csv"], default="json", help="Output format")
+    p.add_argument("--out-dir", type=Path, default=None, help="Output directory (CSV mode)")
+    p.add_argument("--output", default=None, help="Output file path (JSON mode)")
     p.set_defaults(func=_extract_track_records)
 
     p = sub.add_parser("refresh-org-cache", help="Refresh org cache (full or incremental)")
@@ -113,6 +147,36 @@ def main():
     p.add_argument("--recent-backfill-events", type=int, default=0)
     p.add_argument("--token", default=None)
     p.set_defaults(func=_refresh_org_cache)
+
+    p = sub.add_parser("extract-events-csv", help="Extract events NDJSON dump to flat CSV")
+    p.add_argument("--org", type=int, required=True)
+    p.add_argument("--dump-dir", type=Path, default=Path("./output"))
+    p.add_argument("--out-dir", type=Path, default=None)
+    p.set_defaults(func=_extract_events_csv)
+
+    p = sub.add_parser("extract-sessions-csv", help="Extract sessions NDJSON dump to flat CSV")
+    p.add_argument("--org", type=int, required=True)
+    p.add_argument("--dump-dir", type=Path, default=Path("./output"))
+    p.add_argument("--out-dir", type=Path, default=None)
+    p.set_defaults(func=_extract_sessions_csv)
+
+    p = sub.add_parser("extract-laps-csv", help="Extract laps NDJSON dump to flat CSV")
+    p.add_argument("--org", type=int, required=True)
+    p.add_argument("--dump-dir", type=Path, default=Path("./output"))
+    p.add_argument("--out-dir", type=Path, default=None)
+    p.set_defaults(func=_extract_laps_csv)
+
+    p = sub.add_parser("extract-announcements-csv", help="Extract announcements NDJSON dump to flat CSV")
+    p.add_argument("--org", type=int, required=True)
+    p.add_argument("--dump-dir", type=Path, default=Path("./output"))
+    p.add_argument("--out-dir", type=Path, default=None)
+    p.set_defaults(func=_extract_announcements_csv)
+
+    p = sub.add_parser("laps-to-sqlite", help="Import laps NDJSON dump into SQLite")
+    p.add_argument("--org", type=int, required=True)
+    p.add_argument("--dump-dir", type=Path, default=Path("./output"))
+    p.add_argument("--out-dir", type=Path, default=None)
+    p.set_defaults(func=_laps_to_sqlite)
 
     register_discovered(sub)
 

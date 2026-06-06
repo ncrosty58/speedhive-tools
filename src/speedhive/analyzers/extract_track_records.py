@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -107,29 +108,63 @@ def extract_records(org: int, dump_dir: Path, classification: str | None = None)
     return rows
 
 
+_CSV_FIELDS = [
+    "event_id",
+    "event_name",
+    "session_id",
+    "session_name",
+    "classification",
+    "lap_time",
+    "lap_time_seconds",
+    "driver",
+    "marque",
+    "timestamp",
+    "text",
+]
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Extract track records from offline announcements dump")
     parser.add_argument("--org", type=int, required=True)
     parser.add_argument("--classification", default=None)
     parser.add_argument("--dump-dir", type=Path, default=Path("./output"))
-    parser.add_argument("--output", default=None, help="Output JSON file path")
+    parser.add_argument("--out-dir", type=Path, default=None, help="Output directory (for CSV format)")
+    parser.add_argument("--output", default=None, help="Output file path (for JSON format)")
+    parser.add_argument(
+        "--format",
+        choices=["json", "csv"],
+        default="json",
+        help="Output format: json (default) or csv",
+    )
     args = parser.parse_args(argv)
 
     records = extract_records(args.org, args.dump_dir, args.classification)
-    payload = {
-        "org_id": args.org,
-        "classification": args.classification,
-        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-        "records": records,
-    }
-    body = json.dumps(payload, indent=2, ensure_ascii=False)
-    if args.output:
-        out_path = Path(args.output)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(body, encoding="utf8")
-        print(f"Wrote {out_path} ({len(records)} records)")
+
+    if args.format == "csv":
+        out_dir = args.out_dir or args.dump_dir
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_file = out_dir / f"track_records_{args.org}.csv"
+        with out_file.open("w", encoding="utf8", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerows(records)
+        print(f"Wrote {out_file} ({len(records)} records)")
     else:
-        print(body)
+        payload = {
+            "org_id": args.org,
+            "classification": args.classification,
+            "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "records": records,
+        }
+        body = json.dumps(payload, indent=2, ensure_ascii=False)
+        if args.output:
+            out_path = Path(args.output)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(body, encoding="utf8")
+            print(f"Wrote {out_path} ({len(records)} records)")
+        else:
+            print(body)
+
     return 0
 
 
