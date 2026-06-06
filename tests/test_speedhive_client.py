@@ -1,125 +1,117 @@
 """Tests for the SpeedhiveClient wrapper."""
 import pytest
-import sys
-from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
-# Add repo root to import compatibility wrapper
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
-
-from mylaps_client_wrapper import SpeedhiveClient
+from speedhive.client import AuthenticatedClient, Client
+from speedhive.wrapper import SpeedhiveClient
 
 
 class TestSpeedhiveClientInit:
     """Test SpeedhiveClient initialization."""
 
     def test_default_init(self):
-        client = SpeedhiveClient()
-        assert client.base_url == "https://api2.mylaps.com"
-        assert client.token is None
-        assert client.timeout == 30.0
+        sc = SpeedhiveClient.create()
+        assert isinstance(sc.client, Client)
+        assert sc.client.base_url == "https://api2.mylaps.com"
 
     def test_custom_base_url(self):
-        client = SpeedhiveClient(base_url="https://custom.api.com")
-        assert client.base_url == "https://custom.api.com"
+        sc = SpeedhiveClient.create(base_url="https://custom.api.com")
+        assert sc.client.base_url == "https://custom.api.com"
 
     def test_with_token(self):
-        client = SpeedhiveClient(token="test_token")
-        assert client.token == "test_token"
+        sc = SpeedhiveClient.create(token="test_token")
+        assert isinstance(sc.client, AuthenticatedClient)
+        assert sc.client.token == "test_token"
 
 
 class TestSpeedhiveClientMethods:
     """Test SpeedhiveClient methods exist and have proper signatures."""
 
     def test_has_get_organization_method(self):
-        client = SpeedhiveClient()
-        assert hasattr(client, "get_organization")
-        assert callable(client.get_organization)
+        sc = SpeedhiveClient.create()
+        assert hasattr(sc, "get_organization")
+        assert callable(sc.get_organization)
 
     def test_has_get_events_method(self):
-        client = SpeedhiveClient()
-        assert hasattr(client, "get_events")
-        assert callable(client.get_events)
+        sc = SpeedhiveClient.create()
+        assert hasattr(sc, "get_events")
+        assert callable(sc.get_events)
 
     def test_has_iter_events_method(self):
-        client = SpeedhiveClient()
-        assert hasattr(client, "iter_events")
-        assert callable(client.iter_events)
+        sc = SpeedhiveClient.create()
+        assert hasattr(sc, "iter_events")
+        assert callable(sc.iter_events)
 
     def test_has_get_event_method(self):
-        client = SpeedhiveClient()
-        assert hasattr(client, "get_event")
-        assert callable(client.get_event)
+        sc = SpeedhiveClient.create()
+        assert hasattr(sc, "get_event")
+        assert callable(sc.get_event)
 
     def test_has_get_sessions_method(self):
-        client = SpeedhiveClient()
-        assert hasattr(client, "get_sessions")
-        assert callable(client.get_sessions)
+        sc = SpeedhiveClient.create()
+        assert hasattr(sc, "get_sessions")
+        assert callable(sc.get_sessions)
 
     def test_has_get_session_method(self):
-        client = SpeedhiveClient()
-        assert hasattr(client, "get_session")
-        assert callable(client.get_session)
+        sc = SpeedhiveClient.create()
+        assert hasattr(sc, "get_session")
+        assert callable(sc.get_session)
 
     def test_has_get_laps_method(self):
-        client = SpeedhiveClient()
-        assert hasattr(client, "get_laps")
-        assert callable(client.get_laps)
+        sc = SpeedhiveClient.create()
+        assert hasattr(sc, "get_laps")
+        assert callable(sc.get_laps)
 
     def test_has_get_results_method(self):
-        client = SpeedhiveClient()
-        assert hasattr(client, "get_results")
-        assert callable(client.get_results)
+        sc = SpeedhiveClient.create()
+        assert hasattr(sc, "get_results")
+        assert callable(sc.get_results)
 
     def test_has_get_announcements_method(self):
-        client = SpeedhiveClient()
-        assert hasattr(client, "get_announcements")
-        assert callable(client.get_announcements)
+        sc = SpeedhiveClient.create()
+        assert hasattr(sc, "get_announcements")
+        assert callable(sc.get_announcements)
 
     def test_has_get_lap_chart_method(self):
-        client = SpeedhiveClient()
-        assert hasattr(client, "get_lap_chart")
-        assert callable(client.get_lap_chart)
+        sc = SpeedhiveClient.create()
+        assert hasattr(sc, "get_lap_chart")
+        assert callable(sc.get_lap_chart)
 
     def test_has_get_championships_method(self):
-        client = SpeedhiveClient()
-        assert hasattr(client, "get_championships")
-        assert callable(client.get_championships)
+        sc = SpeedhiveClient.create()
+        assert hasattr(sc, "get_championships")
+        assert callable(sc.get_championships)
 
     def test_has_get_championship_method(self):
-        client = SpeedhiveClient()
-        assert hasattr(client, "get_championship")
-        assert callable(client.get_championship)
+        sc = SpeedhiveClient.create()
+        assert hasattr(sc, "get_championship")
+        assert callable(sc.get_championship)
 
     def test_has_get_server_time_method(self):
-        client = SpeedhiveClient()
-        assert hasattr(client, "get_server_time")
-        assert callable(client.get_server_time)
+        sc = SpeedhiveClient.create()
+        assert hasattr(sc, "get_server_time")
+        assert callable(sc.get_server_time)
 
 
 class TestSpeedhiveClientParseResponse:
     """Test response parsing logic."""
 
     def test_parse_response_with_empty_content(self):
-        client = SpeedhiveClient()
         mock_response = Mock()
         mock_response.content = None
-        result = client._parse_response(mock_response)
+        result = SpeedhiveClient._parse_response(mock_response)
         assert result is None
 
     def test_parse_response_with_json_list(self):
-        client = SpeedhiveClient()
         mock_response = Mock()
         mock_response.content = b'[{"id": 1}, {"id": 2}]'
-        result = client._parse_response(mock_response)
+        result = SpeedhiveClient._parse_response(mock_response)
         assert result == [{"id": 1}, {"id": 2}]
 
     def test_parse_response_with_json_dict(self):
-        client = SpeedhiveClient()
         mock_response = Mock()
         mock_response.content = b'{"name": "test", "value": 123}'
-        result = client._parse_response(mock_response)
+        result = SpeedhiveClient._parse_response(mock_response)
         assert result == {"name": "test", "value": 123}
 
 
@@ -129,7 +121,7 @@ class TestExtractEventsToCSV:
     def test_extract_events_to_csv_exists(self):
         import importlib
 
-        modname = "speedhive_tools.processors.extract_events_to_csv"
+        modname = "speedhive.processing.extract_events_to_csv"
         try:
             importlib.import_module(modname)
         except Exception as exc:  # pragma: no cover - test should fail if import fails
@@ -139,6 +131,6 @@ class TestExtractEventsToCSV:
         import importlib
         import inspect
 
-        mod = importlib.import_module("speedhive_tools.processors.extract_events_to_csv")
+        mod = importlib.import_module("speedhive.processing.extract_events_to_csv")
         # ensure at least the module exposes a callable main or extract function
         assert (hasattr(mod, "main") and inspect.isfunction(mod.main)) or hasattr(mod, "extract")

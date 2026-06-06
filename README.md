@@ -81,8 +81,6 @@ src/speedhive/
 └── processing/     # offline processors/helpers
 ```
 
-Legacy `speedhive_tools/` and `mylaps_client_wrapper.py` are compatibility shims that forward to `src/speedhive`.
-
 ## Notes
 
 - Packaging is configured via `pyproject.toml` (PEP 621 + setuptools backend).

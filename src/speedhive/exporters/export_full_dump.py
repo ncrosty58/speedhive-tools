@@ -169,7 +169,7 @@ async def export_org(org_id: int, out_dir: Path, client: Client, verbose: bool =
         print("[WARN] lap rows endpoint missing in generated client; exporter will skip lap rows")
 
     # Prefer specialized exporter fetchers when available (they use the sync
-    # `mylaps_client_wrapper` client). We run them in a thread to avoid
+    # wrapper client). We run them in a thread to avoid
     # blocking the async runtime. Fall back to generated async client endpoints.
     events_payload = []
     import asyncio

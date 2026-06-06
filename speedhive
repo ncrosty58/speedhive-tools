@@ -1,3 +1,9 @@
 #!/usr/bin/env python3
+import os
+import sys
+
+# Allow running from a source checkout without installation.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+
 from speedhive.cli.main import main
 main()

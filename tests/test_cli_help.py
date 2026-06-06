@@ -4,12 +4,13 @@ import sys
 def _run_with_argv(argv):
     import importlib
 
-    cli = importlib.import_module("speedhive_tools.cli")
+    cli = importlib.import_module("speedhive.cli.main")
     old = sys.argv
     try:
         sys.argv = argv
         try:
-            cli.main()
+            code = cli.main()
+            return code
         except SystemExit as e:
             return e.code
     finally:
@@ -25,8 +26,8 @@ def test_cli_top_help():
 def test_cli_subcommand_helps():
     # Dynamically check help for each discovered module command
     import importlib
-    cli = importlib.import_module("speedhive_tools.cli")
-    cmds = [c for c, m, cat in cli._discover_modules()]
+    discovery = importlib.import_module("speedhive.cli.discovery")
+    cmds = [c for c, m, cat in discovery.discover_modules()]
     assert cmds, "No CLI modules discovered"
     for cmd in cmds:
         code = _run_with_argv(["speedhive", cmd, "--help"])

@@ -1,6 +1,6 @@
 import pytest
 
-from speedhive_tools.utils.track_records import parse_track_record_text
+from speedhive.processing.lap_analysis import parse_track_record_text
 
 
 @pytest.mark.parametrize(
