@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import argparse
-from mylaps_client_wrapper import SpeedhiveClient
+from speedhive.wrapper import SpeedhiveClient
 
 
 def main(argv=None) -> int:
@@ -11,7 +11,7 @@ def main(argv=None) -> int:
     parser.add_argument("--token", help="API token (optional)")
     args = parser.parse_args(argv)
 
-    client = SpeedhiveClient(token=args.token)
+    client = SpeedhiveClient.create(token=args.token)
     chart = client.get_lap_chart(session_id=args.session)
     for row in chart[:50]:
         print(row)
