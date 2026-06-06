@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Low‑level HTTP clients for the Speedhive API (no duplication)."""
 
 import ssl
@@ -15,6 +17,7 @@ class BaseClient:
     timeout: Optional[httpx.Timeout] = None
     verify_ssl: bool | str | ssl.SSLContext = True
     follow_redirects: bool = False
+    raise_on_unexpected_status: bool = False
     _client: Optional[httpx.Client] = field(default=None, init=False, repr=False)
     _async_client: Optional[httpx.AsyncClient] = field(default=None, init=False, repr=False)
 
@@ -70,7 +73,7 @@ class Client(BaseClient):
     """Unauthenticated Speedhive client."""
 
 
-@define
+@define(kw_only=True)
 class AuthenticatedClient(BaseClient):
     token: str = field(kw_only=True)
     prefix: str = "Bearer"

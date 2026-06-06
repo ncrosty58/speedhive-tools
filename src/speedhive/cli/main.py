@@ -30,7 +30,7 @@ def _report_consistency(args):
     if args.top != 10: argv.extend(["--top", str(args.top)])
     if args.threshold != 0.85: argv.extend(["--threshold", str(args.threshold)])
     if args.driver: argv.extend(["--driver", args.driver])
-    return _run_module_as_main("speedhive.analyzers.report_top_bottom_consistency", argv)
+    return _run_module_as_main("speedhive.analyzers.report_consistency", argv)
 
 def _extract_driver_laps(args):
     argv = ["--org", str(args.org), "--driver", args.driver]
