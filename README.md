@@ -20,19 +20,24 @@ pip install -e .
 ## Quick CLI Usage
 
 ```bash
-# Export raw offline data dump
-speedhive export-full-dump --org 30476 --output ./output
+# Run analysis directly from the primary SQLite cache
+speedhive report-consistency --org 30476 --db-path ./web_data/speedhive.db --top 10
+speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname" --db-path ./web_data/speedhive.db
+speedhive extract-track-records --org 30476 --db-path ./web_data/speedhive.db
 
-# Compile raw offline NDJSON dumps into local SQLite database
-speedhive to-sqlite --org 30476 --dump-dir ./output
+# Export a raw offline NDJSON dump
+speedhive export-dump --org 30476 --output ./output
 
-# Run offline analysis and records extraction (reads from SQLite database)
-speedhive report-consistency --org 30476 --top 10
-speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
-speedhive extract-track-records --org 30476
+# Import raw offline NDJSON dumps into the primary SQLite cache
+speedhive import-dump --org 30476 --dump-dir ./output --db-path ./web_data/speedhive.db
 
-# Sync and update local organization cache files
-speedhive refresh-org-cache --org 30476 --cache-root ./web_data/cache --mode incremental --recent-backfill-events 3
+# Legacy offline dump analysis still works as a fallback when no primary DB is available
+speedhive report-consistency --org 30476 --dump-dir ./output
+speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname" --dump-dir ./output
+speedhive extract-track-records --org 30476 --dump-dir ./output
+
+# Sync organization data into the primary SQLite cache
+speedhive sync-org --org 30476 --db-path ./web_data/speedhive.db --mode incremental --recent-backfill-events 3
 ```
 
 Run `speedhive --help` for the full command list.
@@ -46,29 +51,41 @@ client = SpeedhiveClient.create(token="your-api-token")
 events = client.get_events(org_id=30476, limit=5)
 ```
 
-## Offline Workflow
+## Preferred Workflow
 
-1) **Export full raw data dump**:
-   Downloads events, sessions, results, laps, and announcements to local NDJSON files.
+1) **Sync data into the primary SQLite cache**:
+   Use the web app sync flow or your own pipeline to populate `./web_data/speedhive.db`.
+
+2) **Run analysis against the primary cache**:
    ```bash
-   speedhive export-full-dump --org 30476 --output ./output
+   speedhive report-consistency --org 30476 --db-path ./web_data/speedhive.db
+   speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname" --db-path ./web_data/speedhive.db
+   speedhive extract-track-records --org 30476 --db-path ./web_data/speedhive.db
    ```
 
-2) **Compile raw dumps to SQLite database**:
-   Imports all NDJSON files under `./output/30476/` into a structured SQLite database.
+## Offline Workflow
+
+1) **Export a raw data dump**:
+   Downloads events, sessions, results, laps, and announcements to local NDJSON files.
    ```bash
-   speedhive to-sqlite --org 30476 --dump-dir ./output
+   speedhive export-dump --org 30476 --output ./output
+   ```
+
+2) **Import raw dumps into the primary SQLite cache**:
+   Imports all NDJSON files under `./output/30476/` into your main cache database.
+   ```bash
+   speedhive import-dump --org 30476 --dump-dir ./output --db-path ./web_data/speedhive.db
    ```
 
 3) **Run offline analysis against the database**:
    ```bash
-   speedhive report-consistency --org 30476
-   speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
+   speedhive report-consistency --org 30476 --dump-dir ./output
+   speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname" --dump-dir ./output
    ```
 
 ## Output Format
 
-`export-full-dump` creates raw cache snapshots in `output/<org_id>/`:
+`export-dump` creates raw NDJSON snapshots in `output/<org_id>/`:
 
 ```text
 output/30476/
@@ -80,10 +97,10 @@ output/30476/
 └── .checkpoint.json
 ```
 
-`to-sqlite` compiles those files into:
+`import-dump` imports those files into the primary cache database, for example:
 ```text
-output/30476/
-└── laps_30476.db
+web_data/
+└── speedhive.db
 ```
 
 ## Project Structure

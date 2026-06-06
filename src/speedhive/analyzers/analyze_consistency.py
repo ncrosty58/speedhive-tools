@@ -1,15 +1,27 @@
-"""Report top/bottom consistency ranking from offline dump artifacts."""
+"""Report top/bottom consistency ranking from the primary SQLite cache."""
 from __future__ import annotations
 
 import argparse
 import difflib
 import math
+import os
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
-from speedhive.processing.process_lap_analysis import compute_laps_and_enriched, normalize_name
+from speedhive.processing.process_lap_analysis import (
+    compute_laps_and_enriched,
+    compute_laps_and_enriched_from_storage,
+    normalize_name,
+)
 from speedhive.processing.ndjson import open_ndjson
+
+if TYPE_CHECKING:
+    from speedhive.storage import SpeedhiveStorage
+
+
+def default_db_path() -> Path:
+    return Path(os.environ.get("SPEEDHIVE_DB_PATH", "./web_data/speedhive.db"))
 
 
 def load_session_types(dump_dir: Path, org: int) -> Dict[str, Dict]:
@@ -27,6 +39,11 @@ def load_session_types(dump_dir: Path, org: int) -> Dict[str, Dict]:
             continue
         mapping[str(int(sid))] = obj.get("raw") or obj
     return mapping
+
+
+def load_session_types_from_storage(storage: "SpeedhiveStorage", org: int) -> Dict[str, Dict]:
+    """Return mapping of session id -> raw session payload from SQLite."""
+    return storage.load_session_payloads(org)
 
 
 def is_race_session(session_raw: Dict) -> bool:
@@ -233,9 +250,10 @@ def find_driver_percentile(
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Report top/bottom consistency from an offline export dump")
+    parser = argparse.ArgumentParser(description="Report top/bottom consistency from the primary SQLite cache")
     parser.add_argument("--org", type=int, required=True)
-    parser.add_argument("--dump-dir", type=Path, default=Path("output"))
+    parser.add_argument("--dump-dir", type=Path, default=Path("output"), help="Legacy offline dump root used only when the DB has no org data")
+    parser.add_argument("--db-path", type=Path, default=default_db_path())
     parser.add_argument("--out-dir", type=Path, default=Path("output"))
     parser.add_argument("--min-laps", type=int, default=20)
     parser.add_argument("--top", type=int, default=10)
@@ -243,8 +261,19 @@ def main(argv=None) -> int:
     parser.add_argument("--driver", "--name", dest="driver", type=str, default=None)
     args = parser.parse_args(argv)
 
-    _, enriched = compute_laps_and_enriched(args.dump_dir, args.org)
-    session_map = load_session_types(args.dump_dir, args.org)
+    if args.db_path.exists():
+        from speedhive.storage import SpeedhiveStorage
+
+        storage = SpeedhiveStorage(args.db_path)
+        if storage.org_has_sessions(args.org):
+            _, enriched = compute_laps_and_enriched_from_storage(storage, args.org)
+            session_map = load_session_types_from_storage(storage, args.org)
+        else:
+            _, enriched = compute_laps_and_enriched(args.dump_dir, args.org)
+            session_map = load_session_types(args.dump_dir, args.org)
+    else:
+        _, enriched = compute_laps_and_enriched(args.dump_dir, args.org)
+        session_map = load_session_types(args.dump_dir, args.org)
     by_name = aggregate_by_name(enriched, session_map)
     clustered = cluster_names(by_name, threshold=args.threshold)
     print_top_bottom(clustered, top_n=args.top, min_laps=args.min_laps)

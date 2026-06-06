@@ -1,8 +1,9 @@
-"""Extract race laps for a fuzzy-matched driver from an offline dump."""
+"""Extract race laps for a fuzzy-matched driver from the primary SQLite cache."""
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
@@ -12,10 +13,16 @@ from typing import Any, Dict, List
 
 from speedhive.processing.process_lap_analysis import (
     compute_laps_and_enriched,
+    compute_laps_and_enriched_from_storage,
     extract_iso_date,
     load_session_map,
     normalize_name,
 )
+from speedhive.analyzers.analyze_consistency import load_session_types_from_storage
+
+
+def default_db_path() -> Path:
+    return Path(os.environ.get("SPEEDHIVE_DB_PATH", "./web_data/speedhive.db"))
 
 
 def is_race_session(session_raw: Dict[str, Any]) -> bool:
@@ -89,7 +96,7 @@ def sanitize_name_for_file(name: str) -> str:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Extract race laps for a driver from an offline dump")
+    parser = argparse.ArgumentParser(description="Extract race laps for a driver from the primary SQLite cache")
     parser.add_argument("--org", type=int, required=True)
     parser.add_argument("--driver", "--name", dest="driver", required=True)
     parser.add_argument(
@@ -98,14 +105,26 @@ def main(argv=None) -> int:
         default=None,
         help="Comma-separated driver_key values to extract (skips fuzzy matching)",
     )
-    parser.add_argument("--dump-dir", type=Path, default=Path("output"))
+    parser.add_argument("--dump-dir", type=Path, default=Path("output"), help="Legacy offline dump root used only when the DB has no org data")
+    parser.add_argument("--db-path", type=Path, default=default_db_path())
     parser.add_argument("--out-dir", type=Path, default=Path("output"))
     parser.add_argument("--threshold", type=float, default=0.85)
     parser.add_argument("--min-laps", type=int, default=0)
     args = parser.parse_args(argv)
 
-    laps_map, enriched = compute_laps_and_enriched(args.dump_dir, args.org)
-    session_map = load_session_map(args.dump_dir, args.org)
+    if args.db_path.exists():
+        from speedhive.storage import SpeedhiveStorage
+
+        storage = SpeedhiveStorage(args.db_path)
+        if storage.org_has_sessions(args.org):
+            laps_map, enriched = compute_laps_and_enriched_from_storage(storage, args.org)
+            session_map = load_session_types_from_storage(storage, args.org)
+        else:
+            laps_map, enriched = compute_laps_and_enriched(args.dump_dir, args.org)
+            session_map = load_session_map(args.dump_dir, args.org)
+    else:
+        laps_map, enriched = compute_laps_and_enriched(args.dump_dir, args.org)
+        session_map = load_session_map(args.dump_dir, args.org)
 
     index = None
     index_path = args.out_dir / f"laps_index_{args.org}.json"

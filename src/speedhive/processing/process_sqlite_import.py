@@ -1,13 +1,169 @@
-"""Import offline NDJSON(.gz) dumps into a local SQLite database."""
+"""Import offline NDJSON(.gz) dumps into the primary SQLite cache."""
 from __future__ import annotations
 
 import argparse
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 from speedhive.processing.process_lap_analysis import load_session_map, parse_track_record_text
 from speedhive.processing.ndjson import open_ndjson
+from speedhive.storage import SpeedhiveStorage
+
+
+def default_db_path() -> Path:
+    return Path(os.environ.get("SPEEDHIVE_DB_PATH", "./web_data/speedhive.db"))
+
+
+def _prefer_gz(path: Path) -> Path:
+    gz_path = path.with_suffix(path.suffix + ".gz")
+    if gz_path.exists():
+        return gz_path
+    return path
+
+
+def import_dump_to_storage(org: int, dump_dir: Path, db_path: Path) -> Dict[str, int]:
+    dump = dump_dir / str(org)
+    if not dump.exists():
+        raise FileNotFoundError(f"Dump directory for organization {org} does not exist at: {dump}")
+
+    storage = SpeedhiveStorage(db_path)
+    summary = {
+        "events": 0,
+        "sessions": 0,
+        "results": 0,
+        "laps": 0,
+        "announcements": 0,
+    }
+
+    events_path = _prefer_gz(dump / "events.ndjson")
+    sessions_path = _prefer_gz(dump / "sessions.ndjson")
+    results_path = _prefer_gz(dump / "results.ndjson")
+    laps_path = _prefer_gz(dump / "laps.ndjson")
+    announcements_path = _prefer_gz(dump / "announcements.ndjson")
+
+    org_name = None
+    events_payload: List[Dict[str, Any]] = []
+    event_payloads: Dict[int, Dict[str, Any]] = {}
+    event_sessions: Dict[int, List[Dict[str, Any]]] = {}
+    sessions_payloads: Dict[int, Dict[str, Any]] = {}
+    results_payloads: Dict[int, List[Dict[str, Any]]] = {}
+    laps_payloads: Dict[int, List[Dict[str, Any]]] = {}
+    announcements_payloads: Dict[int, List[Dict[str, Any]]] = {}
+
+    if events_path.exists():
+        for entry in open_ndjson(events_path):
+            raw = entry.get("raw") if isinstance(entry, dict) else None
+            event = raw if isinstance(raw, dict) else entry
+            if not isinstance(event, dict):
+                continue
+            event_id = event.get("id") or entry.get("event_id") or entry.get("eventId")
+            try:
+                event_id = int(event_id)
+            except Exception:
+                continue
+            event = dict(event)
+            event.setdefault("id", event_id)
+            event.setdefault("organizationId", org)
+            org_name = org_name or ((event.get("organization") or {}).get("name")) or entry.get("organizationName")
+            events_payload.append(event)
+            event_payloads[event_id] = event
+        summary["events"] = len(events_payload)
+
+    if sessions_path.exists():
+        for entry in open_ndjson(sessions_path):
+            raw = entry.get("raw") if isinstance(entry, dict) else None
+            session = raw if isinstance(raw, dict) else entry
+            if not isinstance(session, dict):
+                continue
+            session_id = session.get("id") or entry.get("session_id") or entry.get("sessionId")
+            event_id = entry.get("event_id") or entry.get("eventId") or session.get("eventId") or session.get("event_id")
+            try:
+                session_id = int(session_id)
+                event_id = int(event_id)
+            except Exception:
+                continue
+            session = dict(session)
+            session.setdefault("id", session_id)
+            session.setdefault("eventId", event_id)
+            sessions_payloads[session_id] = session
+            event_sessions.setdefault(event_id, []).append(session)
+        summary["sessions"] = len(sessions_payloads)
+
+    if results_path.exists():
+        for entry in open_ndjson(results_path):
+            if not isinstance(entry, dict):
+                continue
+            session_id = entry.get("session_id") or entry.get("sessionId")
+            try:
+                session_id = int(session_id)
+            except Exception:
+                continue
+            rows = entry.get("results") or entry.get("rows") or []
+            if isinstance(rows, list):
+                results_payloads[session_id] = rows
+        summary["results"] = sum(len(rows) for rows in results_payloads.values())
+
+    if laps_path.exists():
+        for entry in open_ndjson(laps_path):
+            if not isinstance(entry, dict):
+                continue
+            session_id = entry.get("session_id") or entry.get("sessionId") or entry.get("session")
+            try:
+                session_id = int(session_id)
+            except Exception:
+                continue
+            rows = entry.get("rows") or entry.get("rows_list") or entry.get("laps") or []
+            if isinstance(rows, list):
+                laps_payloads[session_id] = rows
+        summary["laps"] = sum(len(rows) for rows in laps_payloads.values())
+
+    if announcements_path.exists():
+        for entry in open_ndjson(announcements_path):
+            if not isinstance(entry, dict):
+                continue
+            session_id = entry.get("session_id") or entry.get("sessionId")
+            try:
+                session_id = int(session_id)
+            except Exception:
+                continue
+            rows = entry.get("announcements") or entry.get("rows") or []
+            if isinstance(rows, list):
+                announcements_payloads[session_id] = rows
+        summary["announcements"] = sum(len(rows) for rows in announcements_payloads.values())
+
+    organization_payload = {"id": org, "name": org_name or f"Organization #{org}"}
+    with storage.connect() as conn:
+        storage.save_organization(org, organization_payload, conn=conn)
+        storage.save_events(org, events_payload, conn=conn)
+        for event_id, event_payload in event_payloads.items():
+            storage.save_event(event_id, org, event_payload, conn=conn)
+            storage.save_event_sessions(event_id, org, event_sessions.get(event_id, []), conn=conn)
+        for session_id, session_payload in sessions_payloads.items():
+            event_id = int(session_payload.get("eventId") or session_payload.get("event_id"))
+            storage.save_session(session_id, event_id, org, session_payload, conn=conn)
+            storage.save_results(session_id, event_id, org, results_payloads.get(session_id, []), conn=conn)
+            storage.save_laps(session_id, event_id, org, laps_payloads.get(session_id, []), conn=conn)
+            storage.save_announcements(session_id, event_id, org, announcements_payloads.get(session_id, []), conn=conn)
+
+        storage.save_refresh_state(
+            org,
+            {
+                "org_id": org,
+                "last_refresh_at": None,
+                "last_refresh_mode": "imported-dump",
+                "events_cached": len(events_payload),
+                "sessions_cached": len(sessions_payloads),
+                "championships_cached": 0,
+                "new_events_detected": 0,
+                "refreshed_events": len(events_payload),
+                "refreshed_sessions": len(sessions_payloads),
+            },
+            conn=conn,
+        )
+
+    return summary
 
 
 def ingest_events(in_path: Path, conn: sqlite3.Connection) -> int:
@@ -379,83 +535,18 @@ def load_event_names(events_path: Path) -> Dict[int, str]:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Import offline NDJSON(.gz) organization dumps into SQLite")
+    parser = argparse.ArgumentParser(description="Import an offline NDJSON(.gz) dump into the primary SQLite cache")
     parser.add_argument("--org", type=int, required=True, help="Organization ID")
-    parser.add_argument("--dump-dir", type=Path, default=Path("./output"), help="Root dump directory")
-    parser.add_argument("--out-dir", type=Path, default=None, help="Output directory for SQLite DB (defaults to dump-dir/<org>/)")
+    parser.add_argument("--dump-dir", type=Path, default=Path("./output"), help="Root directory containing exported NDJSON dump files")
+    parser.add_argument("--db-path", type=Path, default=default_db_path(), help="Primary SQLite cache path")
     args = parser.parse_args(argv)
 
-    dump = args.dump_dir / str(args.org)
-    if not dump.exists():
-        print(f"Dump directory for organization {args.org} does not exist at: {dump}")
-        return 1
-
-    out_dir = args.out_dir or dump
-    out_dir.mkdir(parents=True, exist_ok=True)
-    db_path = out_dir / f"laps_{args.org}.db"
-
-    conn = sqlite3.connect(db_path)
-    try:
-        # Load helper maps for announcements/track records
-        events_path = dump / "events.ndjson.gz"
-        if not events_path.exists():
-            events_path = dump / "events.ndjson"
-
-        event_names = load_event_names(events_path)
-        session_map = load_session_map(args.dump_dir, args.org)
-
-        # 1. Events
-        if events_path.exists():
-            cnt = ingest_events(events_path, conn)
-            print(f"Ingested/updated {cnt} events")
-        else:
-            print("No events file found, skipping.")
-
-        # 2. Sessions
-        sessions_path = dump / "sessions.ndjson.gz"
-        if not sessions_path.exists():
-            sessions_path = dump / "sessions.ndjson"
-        if sessions_path.exists():
-            cnt = ingest_sessions(sessions_path, conn)
-            print(f"Ingested/updated {cnt} sessions")
-        else:
-            print("No sessions file found, skipping.")
-
-        # 3. Laps
-        laps_path = dump / "laps.ndjson.gz"
-        if not laps_path.exists():
-            laps_path = dump / "laps.ndjson"
-        if laps_path.exists():
-            cnt = ingest_laps(laps_path, conn)
-            print(f"Ingested/updated {cnt} laps")
-        else:
-            print("No laps file found, skipping.")
-
-        # 4. Announcements & Track Records
-        announcements_path = dump / "announcements.ndjson.gz"
-        if not announcements_path.exists():
-            announcements_path = dump / "announcements.ndjson"
-        if announcements_path.exists():
-            cnt = ingest_announcements(announcements_path, conn, event_names, session_map)
-            print(f"Ingested/updated {cnt} announcements (processed track records)")
-        else:
-            print("No announcements file found, skipping.")
-
-        # 5. Results
-        results_path = dump / "results.ndjson.gz"
-        if not results_path.exists():
-            results_path = dump / "results.ndjson"
-        if results_path.exists():
-            cnt = ingest_results(results_path, conn)
-            print(f"Ingested/updated {cnt} results")
-        else:
-            print("No results file found, skipping.")
-
-        conn.commit()
-        print(f"Database successfully updated at: {db_path}")
-    finally:
-        conn.close()
-
+    summary = import_dump_to_storage(args.org, args.dump_dir, args.db_path)
+    print(f"Imported dump for org {args.org} into primary cache: {args.db_path}")
+    print(
+        f"events={summary['events']} sessions={summary['sessions']} "
+        f"results={summary['results']} laps={summary['laps']} announcements={summary['announcements']}"
+    )
     return 0
 
 

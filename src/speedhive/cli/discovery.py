@@ -7,9 +7,10 @@ MAPPING = {
     # Aliases: new module-derived names -> explicit CLI names (causes discovery to skip duplicates)
     "analyze-consistency": "report-consistency",
     "analyze-driver-laps": "extract-driver-laps",
-    "process-sqlite-import": "to-sqlite",
+    "process-sqlite-import": "import-dump",
     "process-track-records": "extract-track-records",
-    "export-org-cache": "refresh-org-cache",
+    "export-org-cache": "sync-org",
+    "export-full-dump": "export-dump",
 }
 
 def discover_modules():

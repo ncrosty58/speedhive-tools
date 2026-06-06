@@ -10,9 +10,12 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 import statistics
-from typing import Any, Dict, Iterator, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional
 
 from speedhive.processing.ndjson import open_ndjson
+
+if TYPE_CHECKING:
+    from speedhive.storage import SpeedhiveStorage
 
 
 NORMALIZE_RE = re.compile(r"[^a-z0-9 ]")
@@ -154,96 +157,65 @@ def _assign_key(row, sid: str, pos_map: Dict[int, str]) -> str:
     return key
 
 
-def compute_laps_and_enriched(dump_dir: Path, org: int):
-    """Compute laps_by_driver and enriched mappings from an export directory.
-
-    Returns a tuple (laps_by_driver: Dict[str, List[float]], enriched: Dict[str, Dict])
-    """
-    dump = dump_dir / str(org)
-    sess_path = dump / "sessions.ndjson.gz"
-    if not sess_path.exists():
-        sess_path = dump / "sessions.ndjson"
-    laps_path = dump / "laps.ndjson.gz"
-    if not laps_path.exists():
-        laps_path = dump / "laps.ndjson"
-
-    sessions = {}
-    if sess_path.exists():
-        for obj in open_ndjson(sess_path):
-            sid = obj.get("session_id") or obj.get("sessionId") or (obj.get("raw") or {}).get("id")
-            if sid is None:
-                continue
-            sid = str(int(sid))
-            sessions[sid] = obj.get("raw") or obj
-
+def _compute_laps_and_enriched_from_payloads(
+    sessions: Dict[str, Dict[str, Any]],
+    results_payloads: Dict[str, List[Any]],
+    laps_payloads: Dict[str, List[Any]],
+):
     session_pos_map = {sid: _build_pos_name_map(raw) for sid, raw in sessions.items()}
 
-    results_path = dump / "results.ndjson.gz"
-    if not results_path.exists():
-        results_path = dump / "results.ndjson"
-    if results_path.exists():
-        for obj in open_ndjson(results_path):
-            sid = obj.get("session_id") or obj.get("sessionId")
-            if sid is None:
+    for sid, rows in results_payloads.items():
+        if not isinstance(rows, list):
+            continue
+        mapping = {}
+        for r in rows:
+            if not isinstance(r, dict):
                 continue
-            sid = str(int(sid))
-            rows = obj.get("results") or obj.get("rows") or []
-            if not isinstance(rows, list):
+            try:
+                pos = r.get("position") or r.get("pos")
+                name = r.get("name") or (r.get("competitor") or {}).get("name")
+                if pos is not None and name:
+                    mapping[int(pos)] = name
+            except Exception:
                 continue
-            mapping = {}
-            for r in rows:
-                try:
-                    pos = r.get("position") or r.get("pos")
-                    name = r.get("name") or (r.get("competitor") or {}).get("name")
-                    if pos is not None and name:
-                        mapping[int(pos)] = name
-                except Exception:
-                    continue
-            existing = session_pos_map.get(sid, {})
-            merged = {**existing, **mapping}
-            session_pos_map[sid] = merged
+        existing = session_pos_map.get(sid, {})
+        session_pos_map[sid] = {**existing, **mapping}
 
     laps_by_driver = defaultdict(list)
-    if laps_path.exists():
-        for entry in open_ndjson(laps_path):
-            sid = entry.get("session_id") or entry.get("sessionId") or entry.get("session")
-            if sid is None:
+    for sid, rows in laps_payloads.items():
+        if not isinstance(rows, list):
+            continue
+        pos_map = session_pos_map.get(sid, {})
+        for row in rows:
+            if not isinstance(row, dict):
                 continue
-            sid = str(int(sid))
-            rows = entry.get("rows") or entry.get("rows_list") or entry.get("laps") or []
-            if not isinstance(rows, list):
+            if isinstance(row.get("laps"), list):
+                parent = row
+                for lap in parent.get("laps", []):
+                    t = None
+                    for tf in ("lapTime", "lap_time", "time", "lapSeconds", "seconds"):
+                        if tf in lap:
+                            t = parse_time_value(lap.get(tf))
+                            if t is not None:
+                                break
+                    if t is None:
+                        continue
+                    key = _assign_key(parent, sid, pos_map)
+                    laps_by_driver[key].append(t)
                 continue
-            pos_map = session_pos_map.get(sid, {})
-            for row in rows:
-                # nested laps lists
-                if isinstance(row.get("laps"), list):
-                    parent = row
-                    for lap in parent.get("laps", []):
-                        t = None
-                        for tf in ("lapTime", "lap_time", "time", "lapSeconds", "seconds"):
-                            if tf in lap:
-                                t = parse_time_value(lap.get(tf))
-                                if t is not None:
-                                    break
-                        if t is None:
-                            continue
-                        key = _assign_key(parent, sid, pos_map)
-                        laps_by_driver[key].append(t)
-                    continue
 
-                t = None
-                for tf in ("lapTime", "lap_time", "time", "lapSeconds", "seconds"):
-                    if tf in row:
-                        t = parse_time_value(row.get(tf))
-                        if t is not None:
-                            break
-                if t is None:
-                    continue
-                key = _assign_key(row, sid, pos_map)
-                laps_by_driver[key].append(t)
+            t = None
+            for tf in ("lapTime", "lap_time", "time", "lapSeconds", "seconds"):
+                if tf in row:
+                    t = parse_time_value(row.get(tf))
+                    if t is not None:
+                        break
+            if t is None:
+                continue
+            key = _assign_key(row, sid, pos_map)
+            laps_by_driver[key].append(t)
 
     enriched = {}
-    import statistics
     for key, laps in laps_by_driver.items():
         if not isinstance(laps, list) or not laps:
             continue
@@ -271,6 +243,66 @@ def compute_laps_and_enriched(dump_dir: Path, org: int):
         }
 
     return dict(laps_by_driver), enriched
+
+
+def compute_laps_and_enriched(dump_dir: Path, org: int):
+    """Compute laps_by_driver and enriched mappings from an export directory.
+
+    Returns a tuple (laps_by_driver: Dict[str, List[float]], enriched: Dict[str, Dict])
+    """
+    dump = dump_dir / str(org)
+    sess_path = dump / "sessions.ndjson.gz"
+    if not sess_path.exists():
+        sess_path = dump / "sessions.ndjson"
+    laps_path = dump / "laps.ndjson.gz"
+    if not laps_path.exists():
+        laps_path = dump / "laps.ndjson"
+
+    sessions = {}
+    if sess_path.exists():
+        for obj in open_ndjson(sess_path):
+            sid = obj.get("session_id") or obj.get("sessionId") or (obj.get("raw") or {}).get("id")
+            if sid is None:
+                continue
+            sid = str(int(sid))
+            sessions[sid] = obj.get("raw") or obj
+
+    results_path = dump / "results.ndjson.gz"
+    if not results_path.exists():
+        results_path = dump / "results.ndjson"
+    results_payloads = {}
+    if results_path.exists():
+        for obj in open_ndjson(results_path):
+            sid = obj.get("session_id") or obj.get("sessionId")
+            if sid is None:
+                continue
+            sid = str(int(sid))
+            rows = obj.get("results") or obj.get("rows") or []
+            if not isinstance(rows, list):
+                continue
+            results_payloads[sid] = rows
+
+    laps_payloads = {}
+    if laps_path.exists():
+        for entry in open_ndjson(laps_path):
+            sid = entry.get("session_id") or entry.get("sessionId") or entry.get("session")
+            if sid is None:
+                continue
+            sid = str(int(sid))
+            rows = entry.get("rows") or entry.get("rows_list") or entry.get("laps") or []
+            if not isinstance(rows, list):
+                continue
+            laps_payloads[sid] = rows
+
+    return _compute_laps_and_enriched_from_payloads(sessions, results_payloads, laps_payloads)
+
+
+def compute_laps_and_enriched_from_storage(storage: "SpeedhiveStorage", org: int):
+    """Compute laps_by_driver and enriched mappings from SQLite-backed cache."""
+    sessions = storage.load_session_payloads(org)
+    results_payloads = storage.load_results_payloads(org)
+    laps_payloads = storage.load_laps_payloads(org)
+    return _compute_laps_and_enriched_from_payloads(sessions, results_payloads, laps_payloads)
 
 
 def parse_track_record_text(text: str) -> Optional[Dict[str, Any]]:
@@ -444,4 +476,3 @@ def name_match_score(query: str, name: str) -> float:
         token_bonus += 0.20
     partial_ratio = max((SequenceMatcher(None, tok, n).ratio() for tok in q_tokens), default=0.0)
     return max(ratio, partial_ratio) + token_bonus
-

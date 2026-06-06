@@ -1,12 +1,12 @@
 import argparse
 from unittest.mock import patch
 
-from speedhive.cli.main import main
+from speedhive.cli.main import default_db_path, main
 
 
 @patch("speedhive.cli.main._run_module_as_main")
-def test_export_full_dump_dispatches(mock_run):
-    with patch("sys.argv", ["speedhive", "export-full-dump", "--org", "30476"]):
+def test_export_dump_dispatches(mock_run):
+    with patch("sys.argv", ["speedhive", "export-dump", "--org", "30476"]):
         try:
             main()
         except SystemExit:
@@ -15,7 +15,6 @@ def test_export_full_dump_dispatches(mock_run):
         "speedhive.exporters.export_full_dump",
         ["--org", "30476", "--output", "./output"],
     )
-
 
 @patch("speedhive.cli.main._run_module_as_main")
 def test_report_consistency(mock_run):
@@ -35,16 +34,14 @@ def test_report_consistency(mock_run):
 
 
 @patch("speedhive.cli.main._run_module_as_main")
-def test_refresh_org_cache_dispatches(mock_run):
+def test_sync_org_dispatches_without_legacy_cache_root(mock_run):
     with patch(
         "sys.argv",
         [
             "speedhive",
-            "refresh-org-cache",
+            "sync-org",
             "--org",
             "30476",
-            "--cache-root",
-            "./web_data/cache",
             "--mode",
             "incremental",
             "--recent-backfill-events",
@@ -60,13 +57,26 @@ def test_refresh_org_cache_dispatches(mock_run):
         [
             "--org",
             "30476",
-            "--cache-root",
-            "./web_data/cache",
+            "--db-path",
+            str(default_db_path()),
             "--mode",
             "incremental",
             "--recent-backfill-events",
             "3",
         ],
+    )
+
+
+@patch("speedhive.cli.main._run_module_as_main")
+def test_import_dump_dispatches(mock_run):
+    with patch("sys.argv", ["speedhive", "import-dump", "--org", "30476"]):
+        try:
+            main()
+        except SystemExit:
+            pass
+    mock_run.assert_called_once_with(
+        "speedhive.processing.process_sqlite_import",
+        ["--org", "30476"],
     )
 
 
@@ -78,5 +88,6 @@ def test_discovery_registers_builtin():
     sub = parser.add_subparsers(dest="cmd")
     register_discovered(sub)
     choices = list(sub.choices.keys())
-    assert "export-full-dump" in choices
+    assert "export-dump" in choices
+    assert "sync-org" in choices
     assert "report-consistency" in choices
