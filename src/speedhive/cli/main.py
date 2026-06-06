@@ -48,6 +48,23 @@ def _extract_track_records(args):
     if args.output: argv.extend(["--output", str(args.output)])
     return _run_module_as_main("speedhive.analyzers.extract_track_records", argv)
 
+def _refresh_org_cache(args):
+    argv = [
+        "--org",
+        str(args.org),
+        "--cache-root",
+        str(args.cache_root),
+        "--mode",
+        args.mode,
+    ]
+    if args.max_events is not None:
+        argv.extend(["--max-events", str(args.max_events)])
+    if args.recent_backfill_events:
+        argv.extend(["--recent-backfill-events", str(args.recent_backfill_events)])
+    if args.token:
+        argv.extend(["--token", args.token])
+    return _run_module_as_main("speedhive.exporters.refresh_org_cache", argv)
+
 def main():
     parser = argparse.ArgumentParser(description="Speedhive Tools")
     sub = parser.add_subparsers(dest="command")
@@ -87,6 +104,15 @@ def main():
     p.add_argument("--limit-events", type=int, default=None)
     p.add_argument("--output", default=None)
     p.set_defaults(func=_extract_track_records)
+
+    p = sub.add_parser("refresh-org-cache", help="Refresh org cache (full or incremental)")
+    p.add_argument("--org", type=int, required=True)
+    p.add_argument("--cache-root", default="./web_data/cache")
+    p.add_argument("--mode", choices=["full", "incremental"], default="incremental")
+    p.add_argument("--max-events", type=int, default=None)
+    p.add_argument("--recent-backfill-events", type=int, default=0)
+    p.add_argument("--token", default=None)
+    p.set_defaults(func=_refresh_org_cache)
 
     register_discovered(sub)
 

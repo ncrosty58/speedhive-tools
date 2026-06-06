@@ -34,6 +34,42 @@ def test_report_consistency(mock_run):
     assert "5" in args_list
 
 
+@patch("speedhive.cli.main._run_module_as_main")
+def test_refresh_org_cache_dispatches(mock_run):
+    with patch(
+        "sys.argv",
+        [
+            "speedhive",
+            "refresh-org-cache",
+            "--org",
+            "30476",
+            "--cache-root",
+            "./web_data/cache",
+            "--mode",
+            "incremental",
+            "--recent-backfill-events",
+            "3",
+        ],
+    ):
+        try:
+            main()
+        except SystemExit:
+            pass
+    mock_run.assert_called_once_with(
+        "speedhive.exporters.refresh_org_cache",
+        [
+            "--org",
+            "30476",
+            "--cache-root",
+            "./web_data/cache",
+            "--mode",
+            "incremental",
+            "--recent-backfill-events",
+            "3",
+        ],
+    )
+
+
 def test_discovery_registers_builtin():
     import argparse
     from speedhive.cli.discovery import register_discovered

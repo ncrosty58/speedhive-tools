@@ -21,6 +21,7 @@ pip install -e .
 
 ```bash
 speedhive export-full-dump --org 30476 --output ./output
+speedhive refresh-org-cache --org 30476 --cache-root ./web_data/cache --mode incremental --recent-backfill-events 3
 speedhive report-consistency --org 30476 --top 10
 speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
 speedhive extract-track-records --org 30476
