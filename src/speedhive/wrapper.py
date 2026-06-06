@@ -27,6 +27,29 @@ from speedhive.generated.models.time import Time as TimeModel
 class SpeedhiveClient:
     client: Client | AuthenticatedClient = field()
 
+    @classmethod
+    def create(
+        cls,
+        base_url: str = "https://api2.mylaps.com",
+        token: Optional[str] = None,
+        timeout: float = 30.0,
+        **kwargs: Any,
+    ) -> "SpeedhiveClient":
+        if token:
+            low_client = AuthenticatedClient(
+                base_url=base_url,
+                token=token,
+                timeout=timeout,
+                **kwargs,
+            )
+        else:
+            low_client = Client(
+                base_url=base_url,
+                timeout=timeout,
+                **kwargs,
+            )
+        return cls(client=low_client)
+
     @staticmethod
     def _parse_response(response) -> Any:
         if not response.content:

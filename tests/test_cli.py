@@ -32,3 +32,15 @@ def test_report_consistency(mock_run):
     assert "30476" in args_list
     assert "--top" in args_list
     assert "5" in args_list
+
+
+def test_discovery_registers_builtin():
+    import argparse
+    from speedhive.cli.discovery import register_discovered
+
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="cmd")
+    register_discovered(sub)
+    choices = list(sub.choices.keys())
+    assert "export-full-dump" in choices
+    assert "report-consistency" in choices
