@@ -157,7 +157,30 @@ class SpeedhiveClient:
         response = get_lap_chart.sync_detailed(id=session_id, client=self.client)
         result = self._parse_response(response)
         if isinstance(result, dict):
-            return result.get("rows", result.get("chart", []))
+            if isinstance(result.get("rows"), list):
+                return result.get("rows", [])
+            if isinstance(result.get("chart"), list):
+                return result.get("chart", [])
+            if isinstance(result.get("positionRows"), list):
+                rows = []
+                for lap_idx, position_row in enumerate(result.get("positionRows", []), start=1):
+                    if not isinstance(position_row, list):
+                        continue
+                    positions = []
+                    for entry in position_row:
+                        if not isinstance(entry, dict):
+                            continue
+                        label = entry.get("startNumber")
+                        if not label and entry.get("position") is not None:
+                            label = f"P{entry.get('position')}"
+                        if label:
+                            positions.append(str(label))
+                    rows.append({
+                        "lapNumber": lap_idx,
+                        "positions": positions,
+                        "rawPositions": position_row,
+                    })
+                return rows
         return result if isinstance(result, list) else []
 
     # Championships

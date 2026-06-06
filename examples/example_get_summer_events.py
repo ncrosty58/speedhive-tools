@@ -16,7 +16,7 @@ from typing import Optional
 
 from dateutil import parser as date_parser
 
-from mylaps_client_wrapper import SpeedhiveClient
+from speedhive.wrapper import SpeedhiveClient
 
 
 SUMMER_MONTHS = {6, 7, 8}
@@ -68,7 +68,7 @@ def main(argv=None) -> int:
     parser.add_argument("--year", type=int, help="Optional year to filter (e.g., 2024)")
     args = parser.parse_args(argv)
 
-    client = SpeedhiveClient(token=args.token)
+    client = SpeedhiveClient.create(token=args.token)
 
     found = 0
     for event in client.iter_events(org_id=args.org):

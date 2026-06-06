@@ -4,10 +4,9 @@ import sys
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-# Add mylaps_client to path
+# Add repo root to import compatibility wrapper
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "mylaps_client"))
 
 from mylaps_client_wrapper import SpeedhiveClient
 
@@ -143,5 +142,3 @@ class TestExtractEventsToCSV:
         mod = importlib.import_module("speedhive_tools.processors.extract_events_to_csv")
         # ensure at least the module exposes a callable main or extract function
         assert (hasattr(mod, "main") and inspect.isfunction(mod.main)) or hasattr(mod, "extract")
-
-

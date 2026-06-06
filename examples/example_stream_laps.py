@@ -5,7 +5,7 @@ import argparse
 import json
 import sys
 
-from mylaps_client_wrapper import SpeedhiveClient
+from speedhive.wrapper import SpeedhiveClient
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Example: stream all laps for an org")
@@ -14,7 +14,7 @@ def main(argv=None) -> int:
     parser.add_argument("--token", help="API token (optional)")
     args = parser.parse_args(argv)
 
-    client = SpeedhiveClient(token=args.token)
+    client = SpeedhiveClient.create(token=args.token)
     
     event_iterator = client.iter_events(org_id=args.org)
 

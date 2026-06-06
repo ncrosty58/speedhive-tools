@@ -1,9 +1,8 @@
-"""Extract track-record announcements from an offline organization dump."""
+"""Extract track-record announcements from offline dump and write CSV."""
 from __future__ import annotations
 
 import argparse
-import json
-from datetime import datetime, timezone
+import csv
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -11,10 +10,13 @@ from speedhive.processing.lap_analysis import load_session_map, parse_track_reco
 from speedhive.processing.ndjson import open_ndjson
 
 
-def extract_records(org: int, dump_dir: Path, classification: str | None = None) -> List[Dict[str, Any]]:
-    """Return parsed track record rows from offline announcements dump."""
+def extract_rows(org: int, dump_dir: Path) -> List[Dict[str, Any]]:
+    """Read announcements dump and return parsed track-record rows."""
     dump = dump_dir / str(org)
-    if not dump.exists():
+    anns_path = dump / "announcements.ndjson.gz"
+    if not anns_path.exists():
+        anns_path = dump / "announcements.ndjson"
+    if not anns_path.exists():
         return []
 
     events_path = dump / "events.ndjson.gz"
@@ -27,32 +29,20 @@ def extract_records(org: int, dump_dir: Path, classification: str | None = None)
             if event_id is None:
                 continue
             try:
-                event_id_int = int(event_id)
+                event_names[int(event_id)] = event.get("event_name") or (event.get("raw") or {}).get("name") or ""
             except Exception:
                 continue
-            event_names[event_id_int] = event.get("event_name") or (event.get("raw") or {}).get("name") or ""
 
     session_map = load_session_map(dump_dir, org)
-    anns_path = dump / "announcements.ndjson.gz"
-    if not anns_path.exists():
-        anns_path = dump / "announcements.ndjson"
-    if not anns_path.exists():
-        return []
-
-    desired_class = classification.upper() if classification else None
     rows: List[Dict[str, Any]] = []
     for obj in open_ndjson(anns_path):
-        event_id = obj.get("event_id") or obj.get("eventId") or (obj.get("raw") or {}).get("event_id") or (obj.get("raw") or {}).get("eventId")
-        event_name = None
+        event_id = obj.get("event_id") or obj.get("eventId")
         try:
-            if event_id is not None:
-                event_name = event_names.get(int(event_id))
+            event_name = event_names.get(int(event_id)) if event_id is not None else obj.get("event_name")
         except Exception:
-            event_name = None
-        if not event_name:
             event_name = obj.get("event_name")
 
-        session_id = obj.get("session_id") or obj.get("sessionId") or (obj.get("raw") or {}).get("id")
+        session_id = obj.get("session_id") or obj.get("sessionId")
         session_name = None
         try:
             if session_id is not None:
@@ -62,12 +52,7 @@ def extract_records(org: int, dump_dir: Path, classification: str | None = None)
 
         announcements = obj.get("announcements") or obj.get("rows") or obj.get("announcement") or []
         if isinstance(announcements, dict):
-            if isinstance(announcements.get("announcements"), list):
-                announcements = announcements["announcements"]
-            elif isinstance(announcements.get("rows"), list):
-                announcements = announcements["rows"]
-            else:
-                announcements = []
+            announcements = announcements.get("announcements") or announcements.get("rows") or []
         if isinstance(announcements, str):
             announcements = [announcements]
         if not isinstance(announcements, list):
@@ -80,12 +65,8 @@ def extract_records(org: int, dump_dir: Path, classification: str | None = None)
             else:
                 text = str(ann)
                 timestamp = None
-
             parsed = parse_track_record_text(text)
             if not parsed:
-                continue
-            class_name = parsed.get("classification")
-            if desired_class and str(class_name or "").upper() != desired_class:
                 continue
             rows.append(
                 {
@@ -93,7 +74,7 @@ def extract_records(org: int, dump_dir: Path, classification: str | None = None)
                     "event_name": event_name,
                     "session_id": session_id,
                     "session_name": session_name,
-                    "classification": class_name,
+                    "classification": parsed.get("classification"),
                     "lap_time": parsed.get("lap_time"),
                     "lap_time_seconds": parsed.get("lap_time_seconds"),
                     "driver": parsed.get("driver"),
@@ -102,34 +83,37 @@ def extract_records(org: int, dump_dir: Path, classification: str | None = None)
                     "text": text,
                 }
             )
-
-    rows.sort(key=lambda row: ((row.get("classification") or ""), row.get("lap_time_seconds") or float("inf")))
     return rows
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Extract track records from offline announcements dump")
+    parser = argparse.ArgumentParser(description="Extract track records from announcements dump into CSV")
     parser.add_argument("--org", type=int, required=True)
-    parser.add_argument("--classification", default=None)
     parser.add_argument("--dump-dir", type=Path, default=Path("./output"))
-    parser.add_argument("--output", default=None, help="Output JSON file path")
+    parser.add_argument("--out-dir", type=Path, default=Path("./output"))
     args = parser.parse_args(argv)
 
-    records = extract_records(args.org, args.dump_dir, args.classification)
-    payload = {
-        "org_id": args.org,
-        "classification": args.classification,
-        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-        "records": records,
-    }
-    body = json.dumps(payload, indent=2, ensure_ascii=False)
-    if args.output:
-        out_path = Path(args.output)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(body, encoding="utf8")
-        print(f"Wrote {out_path} ({len(records)} records)")
-    else:
-        print(body)
+    rows = extract_rows(args.org, args.dump_dir)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = args.out_dir / f"track_records_{args.org}.csv"
+    headers = [
+        "event_id",
+        "event_name",
+        "session_id",
+        "session_name",
+        "classification",
+        "lap_time",
+        "lap_time_seconds",
+        "driver",
+        "marque",
+        "timestamp",
+        "text",
+    ]
+    with out_file.open("w", encoding="utf8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"Wrote {out_file}")
     return 0
 
 

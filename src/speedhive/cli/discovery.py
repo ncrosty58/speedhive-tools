@@ -12,7 +12,7 @@ def discover_modules():
     found = []
     for pkg_name, category in (
         ("speedhive.exporters", "exporters"),
-        ("speedhive.processors", "processors"),
+        ("speedhive.processing", "processing"),
         ("speedhive.analyzers", "analyzers"),
     ):
         try:

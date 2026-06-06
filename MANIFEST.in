@@ -3,4 +3,3 @@ include requirements.txt
 include mylaps_client_wrapper.py
 recursive-include examples *
 recursive-include examples/processing *
-recursive-include mylaps_client *
