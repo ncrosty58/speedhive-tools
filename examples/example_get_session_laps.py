@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import argparse
-from mylaps_client_wrapper import SpeedhiveClient
+from speedhive.wrapper import SpeedhiveClient
 
 
 def main(argv=None) -> int:
@@ -12,7 +12,7 @@ def main(argv=None) -> int:
     parser.add_argument("--no-flatten", dest="flatten", action="store_false")
     args = parser.parse_args(argv)
 
-    client = SpeedhiveClient(token=args.token)
+    client = SpeedhiveClient.create(token=args.token)
     laps = client.get_laps(session_id=args.session, flatten=args.flatten)
     for lap in laps[:50]:
         print(lap)

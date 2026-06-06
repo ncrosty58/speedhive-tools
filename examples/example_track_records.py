@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from mylaps_client_wrapper import SpeedhiveClient
+from speedhive.wrapper import SpeedhiveClient
 
 
 def main(argv=None) -> int:
@@ -14,8 +14,8 @@ def main(argv=None) -> int:
     parser.add_argument("--token", help="API token (optional)")
     args = parser.parse_args(argv)
 
-    client = SpeedhiveClient(token=args.token)
-    
+    client = SpeedhiveClient.create(token=args.token)
+
     record_iterator = client.iter_track_records_by_event(
         org_id=args.org,
         classification=args.classification

@@ -124,3 +124,15 @@ def test_get_track_records(client):
         records = sc.get_track_records(org_id=30476)
         assert len(records) == 1
         assert records[0]["classification"] == "IT7"
+
+
+def test_create_without_token():
+    sc = SpeedhiveClient.create(base_url="https://example.com", timeout=10)
+    assert isinstance(sc.client, Client)
+    assert sc.client.base_url == "https://example.com"
+
+
+def test_create_with_token():
+    sc = SpeedhiveClient.create(token="abc", base_url="https://example.com")
+    assert isinstance(sc.client, AuthenticatedClient)
+    assert sc.client.token == "abc"
