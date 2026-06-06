@@ -168,12 +168,20 @@ class SpeedhiveClient:
             if isinstance(result.get("chart"), list):
                 return result.get("chart", [])
             if isinstance(result.get("positionRows"), list):
+                position_rows = result.get("positionRows", [])
+                num_laps = 0
+                for row in position_rows:
+                    if isinstance(row, list):
+                        num_laps = max(num_laps, len(row))
+                
                 rows = []
-                for lap_idx, position_row in enumerate(result.get("positionRows", []), start=1):
-                    if not isinstance(position_row, list):
-                        continue
+                for lap_idx in range(num_laps):
                     positions = []
-                    for entry in position_row:
+                    raw_positions = []
+                    for row in position_rows:
+                        if not isinstance(row, list) or lap_idx >= len(row):
+                            continue
+                        entry = row[lap_idx]
                         if not isinstance(entry, dict):
                             continue
                         label = entry.get("startNumber")
@@ -181,10 +189,11 @@ class SpeedhiveClient:
                             label = f"P{entry.get('position')}"
                         if label:
                             positions.append(str(label))
+                        raw_positions.append(entry)
                     rows.append({
-                        "lapNumber": lap_idx,
+                        "lapNumber": lap_idx + 1,
                         "positions": positions,
-                        "rawPositions": position_row,
+                        "rawPositions": raw_positions,
                     })
                 return rows
         return result if isinstance(result, list) else []

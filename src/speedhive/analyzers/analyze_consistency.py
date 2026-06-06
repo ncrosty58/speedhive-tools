@@ -99,12 +99,23 @@ def aggregate_by_name(enriched: Dict[str, Dict], session_map: Dict[str, Dict]) -
         if total_laps <= 0:
             continue
         pooled_mean = sum(n * m for n, m, _ in parts) / total_laps
-        numer = 0.0
-        for n, mean_v, stdev_v in parts:
-            numer += ((n - 1) * (stdev_v ** 2)) + (n * ((mean_v - pooled_mean) ** 2))
-        pooled_var = numer / (total_laps - 1) if total_laps > 1 else 0.0
+        
+        # Pool variance within sessions only (exclude between-session pace differences)
+        numer = sum((n - 1) * (stdev_v ** 2) for n, _, stdev_v in parts)
+        denom = sum(n - 1 for n, _, _ in parts)
+        pooled_var = numer / denom if denom > 0 else 0.0
         pooled_stdev = math.sqrt(pooled_var) if pooled_var > 0 else 0.0
-        pooled_cv = (pooled_stdev / pooled_mean) if pooled_mean else None
+        
+        # Calculate pooled CV as scale-invariant weighted average of session CVs
+        cv_numer = 0.0
+        cv_denom = 0.0
+        for n, mean_v, stdev_v in parts:
+            if mean_v > 0:
+                cv_v = stdev_v / mean_v
+                cv_numer += n * cv_v
+                cv_denom += n
+        pooled_cv = (cv_numer / cv_denom) if cv_denom > 0 else None
+
         aggregated[name] = {
             "lap_count": total_laps,
             "mean": pooled_mean,
@@ -122,7 +133,13 @@ def cluster_names(by_name: Dict[str, Dict], threshold: float = 0.85) -> Dict[str
         normalized = normalize_name(name)
         best_cluster = None
         best_score = 0.0
+        len_norm = len(normalized)
         for cluster in clusters:
+            len_clust = len(cluster["norm"])
+            # Quick length-based heuristic filter to skip expensive SequenceMatcher ratio
+            max_ratio = (2.0 * min(len_norm, len_clust)) / (len_norm + len_clust) if (len_norm + len_clust) > 0 else 0.0
+            if max_ratio < threshold or max_ratio <= best_score:
+                continue
             score = difflib.SequenceMatcher(None, normalized, cluster["norm"]).ratio()
             if score > best_score:
                 best_score = score
@@ -147,12 +164,23 @@ def cluster_names(by_name: Dict[str, Dict], threshold: float = 0.85) -> Dict[str
             continue
         total_laps = sum(n for n, _, _ in parts)
         pooled_mean = sum(n * m for n, m, _ in parts) / total_laps
-        numer = 0.0
-        for n, mean_v, stdev_v in parts:
-            numer += ((n - 1) * (stdev_v ** 2)) + (n * ((mean_v - pooled_mean) ** 2))
-        pooled_var = numer / (total_laps - 1) if total_laps > 1 else 0.0
+        
+        # Pool variance within sessions only (exclude between-session pace differences)
+        numer = sum((n - 1) * (stdev_v ** 2) for n, _, stdev_v in parts)
+        denom = sum(n - 1 for n, _, _ in parts)
+        pooled_var = numer / denom if denom > 0 else 0.0
         pooled_stdev = math.sqrt(pooled_var) if pooled_var > 0 else 0.0
-        pooled_cv = (pooled_stdev / pooled_mean) if pooled_mean else None
+        
+        # Calculate pooled CV as scale-invariant weighted average of session CVs
+        cv_numer = 0.0
+        cv_denom = 0.0
+        for n, mean_v, stdev_v in parts:
+            if mean_v > 0:
+                cv_v = stdev_v / mean_v
+                cv_numer += n * cv_v
+                cv_denom += n
+        pooled_cv = (cv_numer / cv_denom) if cv_denom > 0 else None
+
         merged[cluster["rep"]] = {
             "lap_count": total_laps,
             "mean": pooled_mean,
