@@ -624,6 +624,25 @@ class SpeedhiveStorage:
     def delete_org(self, org_id: int) -> None:
         org_id = int(org_id)
         with self.connect() as conn:
+            event_ids = [
+                int(row["event_id"])
+                for row in conn.execute("SELECT event_id FROM events WHERE org_id = ?", (org_id,)).fetchall()
+            ]
+            session_ids = [
+                int(row["session_id"])
+                for row in conn.execute("SELECT session_id FROM sessions WHERE org_id = ?", (org_id,)).fetchall()
+            ]
+
+            if event_ids:
+                placeholders = ", ".join(["?"] * len(event_ids))
+                conn.execute(f"DELETE FROM event_sessions WHERE event_id IN ({placeholders})", event_ids)
+                conn.execute(f"DELETE FROM events WHERE event_id IN ({placeholders})", event_ids)
+
+            if session_ids:
+                placeholders = ", ".join(["?"] * len(session_ids))
+                for table in ("session_results", "session_announcements", "session_laps", "session_lap_chart", "sessions"):
+                    conn.execute(f"DELETE FROM {table} WHERE session_id IN ({placeholders})", session_ids)
+
             for table in ("session_results", "session_announcements", "session_laps", "session_lap_chart"):
                 conn.execute(f"DELETE FROM {table} WHERE org_id = ?", (org_id,))
             conn.execute("DELETE FROM sessions WHERE org_id = ?", (org_id,))
