@@ -21,6 +21,8 @@ from speedhive.generated.api.session_controller import (
 )
 from speedhive.generated.api.championship_controller import get_championship
 from speedhive.generated.models.time import Time as TimeModel
+from speedhive.processing.lap_analysis import parse_track_record_text
+
 
 
 @define
@@ -67,6 +69,8 @@ class SpeedhiveClient:
             kwargs["count"] = limit
         response = get_event_list.sync_detailed(**kwargs)
         result = self._parse_response(response)
+        if isinstance(result, dict):
+            return result.get("rows", [])
         return result if isinstance(result, list) else []
 
     def iter_events(self, org_id: int, page_size: int = 100) -> Iterator[Dict[str, Any]]:
@@ -94,9 +98,8 @@ class SpeedhiveClient:
             return result
         if isinstance(result, dict):
             sessions = []
-            for key in ("sessions", "groups"):
-                if isinstance(result.get(key), list):
-                    sessions.extend(result[key])
+            if isinstance(result.get("sessions"), list):
+                sessions.extend(result["sessions"])
             if isinstance(result.get("groups"), list):
                 for g in result["groups"]:
                     if isinstance(g.get("sessions"), list):
@@ -176,7 +179,6 @@ class SpeedhiveClient:
     def get_track_records(
         self, org_id: int, classification: Optional[str] = None, limit_events: Optional[int] = None
     ) -> List[Dict[str, Any]]:
-        from speedhive.processing.lap_analysis import parse_track_record_text
         records = []
         event_iter = self.iter_events(org_id=org_id)
         if limit_events is not None:

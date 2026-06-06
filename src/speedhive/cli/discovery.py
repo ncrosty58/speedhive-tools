@@ -3,6 +3,11 @@
 import importlib
 import pkgutil
 
+MAPPING = {
+    "report-top-bottom-consistency": "report-consistency",
+    "driver-laps": "extract-driver-laps",
+}
+
 def discover_modules():
     found = []
     for pkg_name, category in (
@@ -24,11 +29,14 @@ def discover_modules():
                 continue
             if hasattr(mod, "main") and callable(getattr(mod, "main")):
                 cmd = name.replace("_", "-")
+                cmd = MAPPING.get(cmd, cmd)
                 found.append((cmd, mod, category))
     return found
 
 def register_discovered(subparsers):
     for cmd, mod, cat in discover_modules():
+        if cmd in subparsers.choices:
+            continue
         if hasattr(mod, "register_subparser") and callable(getattr(mod, "register_subparser")):
             try:
                 sp = subparsers.add_parser(cmd, help=f"{cat} ({cmd})")
@@ -42,3 +50,4 @@ def register_discovered(subparsers):
             sp = subparsers.add_parser(cmd, help=f"{cat} ({cmd})")
             sp.add_argument("extra_args", nargs="*")
             sp.set_defaults(_module=mod)
+
