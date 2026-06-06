@@ -35,7 +35,7 @@ def test_extract_announcements_various_shapes(tmp_path: Path):
 
     conn = sqlite3.connect(db_path)
     try:
-        count = ingest_announcements(in_gz, conn)
+        count = ingest_announcements(in_gz, conn, {}, {})
         conn.commit()
     finally:
         conn.close()

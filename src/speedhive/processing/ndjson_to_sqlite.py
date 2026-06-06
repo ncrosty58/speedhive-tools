@@ -6,16 +6,16 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
+from speedhive.processing.lap_analysis import load_session_map, parse_track_record_text
 from speedhive.processing.ndjson import open_ndjson
 
 
 def ingest_events(in_path: Path, conn: sqlite3.Connection) -> int:
     """Ingest events into events table."""
     cur = conn.cursor()
-    cur.execute("DROP TABLE IF EXISTS events")
     cur.execute(
         """
-        CREATE TABLE events (
+        CREATE TABLE IF NOT EXISTS events (
             event_id INTEGER PRIMARY KEY,
             name TEXT,
             date TEXT,
@@ -76,10 +76,9 @@ def _iter_sessions(record: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
 def ingest_sessions(in_path: Path, conn: sqlite3.Connection) -> int:
     """Ingest sessions into sessions table."""
     cur = conn.cursor()
-    cur.execute("DROP TABLE IF EXISTS sessions")
     cur.execute(
         """
-        CREATE TABLE sessions (
+        CREATE TABLE IF NOT EXISTS sessions (
             event_id INTEGER,
             session_id INTEGER PRIMARY KEY,
             name TEXT,
@@ -120,19 +119,23 @@ def ingest_sessions(in_path: Path, conn: sqlite3.Connection) -> int:
 def ingest_laps(in_path: Path, conn: sqlite3.Connection) -> int:
     """Ingest laps into laps table."""
     cur = conn.cursor()
-    cur.execute("DROP TABLE IF EXISTS laps")
     cur.execute(
         """
-        CREATE TABLE laps (
+        CREATE TABLE IF NOT EXISTS laps (
             event_id INTEGER,
             session_id INTEGER,
             competitor_id TEXT,
             lap_number INTEGER,
             lap_time TEXT,
-            position INTEGER
+            position INTEGER,
+            PRIMARY KEY (session_id, competitor_id, lap_number)
         )
         """
     )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_laps_event ON laps (event_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_laps_session ON laps (session_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_laps_competitor ON laps (competitor_id)")
+
     inserted = 0
     for record in open_ndjson(in_path):
         event_id = record.get("event_id") or record.get("eventId")
@@ -162,8 +165,11 @@ def ingest_laps(in_path: Path, conn: sqlite3.Connection) -> int:
             except Exception:
                 position = None
 
+            if session_id is None or comp_id is None or lap_number is None:
+                continue
+
             cur.execute(
-                "INSERT INTO laps VALUES (?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO laps VALUES (?,?,?,?,?,?)",
                 (event_id, session_id, comp_id, lap_number, lap_time, position),
             )
             inserted += 1
@@ -188,20 +194,49 @@ def _iter_announcements(rec: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
     return []
 
 
-def ingest_announcements(in_path: Path, conn: sqlite3.Connection) -> int:
-    """Ingest announcements into announcements table."""
+def ingest_announcements(
+    in_path: Path,
+    conn: sqlite3.Connection,
+    event_names: Dict[int, str],
+    session_map: Dict[str, Any],
+) -> int:
+    """Ingest announcements and parse track records directly into SQLite."""
     cur = conn.cursor()
-    cur.execute("DROP TABLE IF EXISTS announcements")
     cur.execute(
         """
-        CREATE TABLE announcements (
+        CREATE TABLE IF NOT EXISTS announcements (
             event_id INTEGER,
             session_id INTEGER,
             ts TEXT,
-            text TEXT
+            text TEXT,
+            UNIQUE (session_id, ts, text)
         )
         """
     )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_announcements_event ON announcements (event_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_announcements_session ON announcements (session_id)")
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS track_records (
+            event_id INTEGER,
+            event_name TEXT,
+            session_id INTEGER,
+            session_name TEXT,
+            classification TEXT,
+            lap_time TEXT,
+            lap_time_seconds REAL,
+            driver TEXT,
+            marque TEXT,
+            timestamp TEXT,
+            text TEXT,
+            PRIMARY KEY (session_id, text)
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_track_records_event ON track_records (event_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_track_records_class ON track_records (classification)")
+
     inserted = 0
     for rec in open_ndjson(in_path):
         event_id = rec.get("event_id") or rec.get("eventId")
@@ -216,23 +251,60 @@ def ingest_announcements(in_path: Path, conn: sqlite3.Connection) -> int:
             session_id = None
 
         for a in _iter_announcements(rec):
-            text = a.get("text") or a.get("message") or a.get("body")
-            ts = a.get("time") or a.get("timestamp") or a.get("ts")
+            text = (a.get("text") or a.get("message") or a.get("body") or "").strip()
+            ts = (a.get("time") or a.get("timestamp") or a.get("ts") or "").strip()
+            if not text:
+                continue
+
             cur.execute(
-                "INSERT INTO announcements VALUES (?,?,?,?)",
+                "INSERT OR REPLACE INTO announcements VALUES (?,?,?,?)",
                 (event_id, session_id, ts, text),
             )
             inserted += 1
+
+            # Parse track records
+            parsed = parse_track_record_text(text)
+            if parsed:
+                class_name = parsed.get("classification")
+                lap_time = parsed.get("lap_time")
+                lap_time_seconds = parsed.get("lap_time_seconds")
+                driver = parsed.get("driver")
+                marque = parsed.get("marque")
+
+                event_name = None
+                if event_id is not None:
+                    event_name = event_names.get(int(event_id))
+
+                session_name = None
+                if session_id is not None:
+                    session_name = (session_map.get(str(int(session_id))) or {}).get("name")
+
+                cur.execute(
+                    "INSERT OR REPLACE INTO track_records VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        event_id,
+                        event_name,
+                        session_id,
+                        session_name,
+                        class_name,
+                        lap_time,
+                        lap_time_seconds,
+                        driver,
+                        marque,
+                        ts,
+                        text,
+                    ),
+                )
+
     return inserted
 
 
 def ingest_results(in_path: Path, conn: sqlite3.Connection) -> int:
     """Ingest results into results table."""
     cur = conn.cursor()
-    cur.execute("DROP TABLE IF EXISTS results")
     cur.execute(
         """
-        CREATE TABLE results (
+        CREATE TABLE IF NOT EXISTS results (
             event_id INTEGER,
             session_id INTEGER,
             competitor_id TEXT,
@@ -240,10 +312,13 @@ def ingest_results(in_path: Path, conn: sqlite3.Connection) -> int:
             position INTEGER,
             total_time TEXT,
             laps INTEGER,
-            best_lap_time TEXT
+            best_lap_time TEXT,
+            PRIMARY KEY (session_id, competitor_id)
         )
         """
     )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_results_event ON results (event_id)")
+
     inserted = 0
     for record in open_ndjson(in_path):
         event_id = record.get("event_id") or record.get("eventId")
@@ -276,12 +351,31 @@ def ingest_results(in_path: Path, conn: sqlite3.Connection) -> int:
             except Exception:
                 laps = None
 
+            if session_id is None or comp_id is None:
+                continue
+
             cur.execute(
-                "INSERT INTO results VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO results VALUES (?,?,?,?,?,?,?,?)",
                 (event_id, session_id, comp_id, name, pos, total_time, laps, best_lap_time),
             )
             inserted += 1
     return inserted
+
+
+def load_event_names(events_path: Path) -> Dict[int, str]:
+    """Helper to read events from NDJSON and return a mapping of ID to Name."""
+    event_names: Dict[int, str] = {}
+    if events_path.exists():
+        for event in open_ndjson(events_path):
+            event_id = event.get("event_id") or event.get("eventId") or (event.get("raw") or {}).get("id")
+            if event_id is None:
+                continue
+            try:
+                event_id_int = int(event_id)
+            except Exception:
+                continue
+            event_names[event_id_int] = event.get("event_name") or (event.get("raw") or {}).get("name") or ""
+    return event_names
 
 
 def main(argv=None) -> int:
@@ -302,13 +396,18 @@ def main(argv=None) -> int:
 
     conn = sqlite3.connect(db_path)
     try:
-        # 1. Events
+        # Load helper maps for announcements/track records
         events_path = dump / "events.ndjson.gz"
         if not events_path.exists():
             events_path = dump / "events.ndjson"
+
+        event_names = load_event_names(events_path)
+        session_map = load_session_map(args.dump_dir, args.org)
+
+        # 1. Events
         if events_path.exists():
             cnt = ingest_events(events_path, conn)
-            print(f"Ingested {cnt} events")
+            print(f"Ingested/updated {cnt} events")
         else:
             print("No events file found, skipping.")
 
@@ -318,7 +417,7 @@ def main(argv=None) -> int:
             sessions_path = dump / "sessions.ndjson"
         if sessions_path.exists():
             cnt = ingest_sessions(sessions_path, conn)
-            print(f"Ingested {cnt} sessions")
+            print(f"Ingested/updated {cnt} sessions")
         else:
             print("No sessions file found, skipping.")
 
@@ -328,17 +427,17 @@ def main(argv=None) -> int:
             laps_path = dump / "laps.ndjson"
         if laps_path.exists():
             cnt = ingest_laps(laps_path, conn)
-            print(f"Ingested {cnt} laps")
+            print(f"Ingested/updated {cnt} laps")
         else:
             print("No laps file found, skipping.")
 
-        # 4. Announcements
+        # 4. Announcements & Track Records
         announcements_path = dump / "announcements.ndjson.gz"
         if not announcements_path.exists():
             announcements_path = dump / "announcements.ndjson"
         if announcements_path.exists():
-            cnt = ingest_announcements(announcements_path, conn)
-            print(f"Ingested {cnt} announcements")
+            cnt = ingest_announcements(announcements_path, conn, event_names, session_map)
+            print(f"Ingested/updated {cnt} announcements (processed track records)")
         else:
             print("No announcements file found, skipping.")
 
@@ -348,7 +447,7 @@ def main(argv=None) -> int:
             results_path = dump / "results.ndjson"
         if results_path.exists():
             cnt = ingest_results(results_path, conn)
-            print(f"Ingested {cnt} results")
+            print(f"Ingested/updated {cnt} results")
         else:
             print("No results file found, skipping.")
 
