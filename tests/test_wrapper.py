@@ -3,7 +3,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from speedhive.client import Client
+from speedhive.client import Client, AuthenticatedClient
 from speedhive.wrapper import SpeedhiveClient
 
 
