@@ -97,8 +97,10 @@ def matches_session_type(session_raw: Dict, session_type: str) -> bool:
         return is_race_session(session_raw)
 
 
-def aggregate_by_name(enriched: Dict[str, Dict], session_map: Dict[str, Dict], session_type: str = "race") -> Dict[str, Dict]:
+def aggregate_by_name(enriched: Dict[str, Dict], session_map: Dict[str, Dict], session_types: List[str] = None) -> Dict[str, Dict]:
     """Pool per-driver-key statistics by driver display name."""
+    if not session_types:
+        session_types = ["race"]
     grouped: Dict[str, List[Tuple[int, float, float]]] = defaultdict(list)
     for _, value in enriched.items():
         name = value.get("name")
@@ -112,7 +114,8 @@ def aggregate_by_name(enriched: Dict[str, Dict], session_map: Dict[str, Dict], s
                 continue
             try:
                 sid = session_key.split("_")[0].replace("session", "")
-                if matches_session_type(session_map.get(sid, {}), session_type):
+                session_raw = session_map.get(sid, {})
+                if any(matches_session_type(session_raw, t) for t in session_types):
                     include = True
                     break
             except Exception:
