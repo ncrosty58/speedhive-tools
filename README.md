@@ -123,6 +123,10 @@ src/speedhive/
 └── processors/        # future processors
 ```
 
+### Design decisions
+
+- **No Pydantic dependency** – the generated API client uses `attrs` for models, and the wrapper returns plain dicts from `json.loads`. This keeps the dependency footprint small and avoids mixing validation frameworks. If stricter validation is needed later, it can be added selectively without affecting the rest of the codebase.
+
 ---
 
 ## Contributing
