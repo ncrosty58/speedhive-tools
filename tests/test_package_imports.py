@@ -8,8 +8,8 @@ def test_package_and_submodules_importable():
     for mod in (
         "speedhive.cli.main",
         "speedhive.exporters.export_full_dump",
-        "speedhive.analyzers.driver_laps",
-        "speedhive.processing.lap_analysis",
+        "speedhive.analyzers.analyze_driver_laps",
+        "speedhive.processing.process_lap_analysis",
     ):
         m = importlib.import_module(mod)
         assert m is not None

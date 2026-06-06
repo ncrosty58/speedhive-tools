@@ -4,10 +4,12 @@ import importlib
 import pkgutil
 
 MAPPING = {
-    # Aliases: old module-derived names -> explicit CLI names (causes discovery to skip duplicates)
-    "report-top-bottom-consistency": "report-consistency",
-    "driver-laps": "extract-driver-laps",
-    "ndjson-to-sqlite": "to-sqlite",
+    # Aliases: new module-derived names -> explicit CLI names (causes discovery to skip duplicates)
+    "analyze-consistency": "report-consistency",
+    "analyze-driver-laps": "extract-driver-laps",
+    "process-sqlite-import": "to-sqlite",
+    "process-track-records": "extract-track-records",
+    "export-org-cache": "refresh-org-cache",
 }
 
 def discover_modules():

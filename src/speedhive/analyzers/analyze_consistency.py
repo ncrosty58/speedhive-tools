@@ -8,7 +8,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from speedhive.processing.lap_analysis import compute_laps_and_enriched, normalize_name
+from speedhive.processing.process_lap_analysis import compute_laps_and_enriched, normalize_name
 from speedhive.processing.ndjson import open_ndjson
 
 

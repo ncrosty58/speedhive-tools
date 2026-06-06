@@ -121,7 +121,7 @@ class TestNDJSONToSQLite:
     def test_ndjson_to_sqlite_exists(self):
         import importlib
 
-        modname = "speedhive.processing.ndjson_to_sqlite"
+        modname = "speedhive.processing.process_sqlite_import"
         try:
             importlib.import_module(modname)
         except Exception as exc:  # pragma: no cover - test should fail if import fails
@@ -131,6 +131,6 @@ class TestNDJSONToSQLite:
         import importlib
         import inspect
 
-        mod = importlib.import_module("speedhive.processing.ndjson_to_sqlite")
+        mod = importlib.import_module("speedhive.processing.process_sqlite_import")
         # ensure at least the module exposes a callable main function
         assert hasattr(mod, "main") and inspect.isfunction(mod.main)

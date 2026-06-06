@@ -78,7 +78,7 @@ def test_ndjson_to_sqlite_full_ingest(tmp_path):
     _write_gz_lines(org_dir / "results.ndjson.gz", [results_sample])
 
     # Run full ingest using main
-    from speedhive.processing.ndjson_to_sqlite import main as sqlite_main
+    from speedhive.processing.process_sqlite_import import main as sqlite_main
 
     argv = ["--org", str(org), "--dump-dir", str(dump_dir), "--out-dir", str(tmp_path)]
     exit_code = sqlite_main(argv)

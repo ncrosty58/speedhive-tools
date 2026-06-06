@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 import json
 import re
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional
+import statistics
+from typing import Any, Dict, Iterator, List, Optional
 
 from speedhive.processing.ndjson import open_ndjson
 
@@ -315,3 +317,131 @@ def parse_track_record_text(text: str) -> Optional[Dict[str, Any]]:
         "driver": driver,
         "marque": marque,
     }
+
+
+def format_seconds(seconds: float) -> str:
+    """Format float seconds to MM:SS.FFF or SS.FFF representation."""
+    if seconds is None:
+        return "N/A"
+    try:
+        minutes = int(seconds // 60)
+        secs = seconds % 60
+        if minutes > 0:
+            return f"{minutes}:{secs:06.3f}".rstrip('0').rstrip('.')
+        return f"{secs:.3f}"
+    except Exception:
+        return "N/A"
+
+
+def first_non_empty(*values: Any) -> Any:
+    """Return first non-empty value from candidates."""
+    for value in values:
+        if value is None:
+            continue
+        val_str = str(value).strip()
+        if val_str:
+            return value
+    return None
+
+
+def compute_lap_statistics(laps: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Compute consistency, mean, median, stdev, and CV statistics for a list of laps."""
+    times = []
+    best_time_sec = float('inf')
+    best_time_str = "N/A"
+
+    for lap in laps:
+        time_str = lap.get("lapTime") or lap.get("lap_time")
+        if not time_str:
+            continue
+        sec = parse_time_value(time_str)
+        if sec is not None and sec > 0:
+            times.append(sec)
+            if sec < best_time_sec:
+                best_time_sec = sec
+                best_time_str = time_str
+
+    if not times:
+        return {
+            "lap_count": 0,
+            "best_lap": "N/A",
+            "mean": "N/A",
+            "median": "N/A",
+            "stdev": "N/A",
+            "cv": "N/A",
+            "cv_raw": None,
+        }
+
+    lap_count = len(times)
+    mean_val = statistics.mean(times)
+    median_val = statistics.median(times)
+    stdev_val = statistics.stdev(times) if len(times) > 1 else 0.0
+    cv_val = stdev_val / mean_val if mean_val > 0 else 0.0
+
+    return {
+        "lap_count": lap_count,
+        "best_lap": best_time_str,
+        "mean": format_seconds(mean_val),
+        "median": format_seconds(median_val),
+        "stdev": f"{stdev_val:.3f}",
+        "cv": f"{cv_val * 100:.2f}%",
+        "cv_raw": cv_val,
+    }
+
+
+def build_lap_chart_from_laps(laps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Build lap chart rows from flat lap rows when chart endpoint is unavailable."""
+    lap_rows: Dict[int, List[Dict[str, Any]]] = {}
+    for lap in laps:
+        if not isinstance(lap, dict):
+            continue
+        lap_no = first_non_empty(lap.get("lapNumber"), lap.get("lap"))
+        position = lap.get("position")
+        if lap_no is None or position is None:
+            continue
+        try:
+            lap_idx = int(lap_no)
+        except Exception:
+            lap_idx = -1
+        if lap_idx < 0:
+            continue
+        lap_rows.setdefault(lap_idx, []).append(lap)
+
+    chart_rows = []
+    for lap_no in sorted(lap_rows.keys()):
+        positions = []
+        # Sort by position
+        sorted_entries = sorted(
+            lap_rows[lap_no],
+            key=lambda item: int(item.get("position")) if item.get("position") is not None else 9999
+        )
+        for entry in sorted_entries:
+            label = first_non_empty(entry.get("startNumber"), entry.get("competitorId"))
+            if label is None:
+                label = f"P{entry.get('position')}"
+            positions.append(str(label))
+        chart_rows.append({"lapNumber": lap_no, "positions": positions})
+    return chart_rows
+
+
+def normalize_search_text(text: str) -> str:
+    """Normalize text for fuzzy matching."""
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", (text or "").lower())).strip()
+
+
+def name_match_score(query: str, name: str) -> float:
+    """Compute fuzzy match score between search query and driver name."""
+    q = normalize_search_text(query)
+    n = normalize_search_text(name)
+    if not q or not n:
+        return 0.0
+    ratio = SequenceMatcher(None, q, n).ratio()
+    token_bonus = 0.0
+    q_tokens = [tok for tok in q.split(" ") if tok]
+    if q in n:
+        token_bonus += 0.25
+    if q_tokens and all(tok in n for tok in q_tokens):
+        token_bonus += 0.20
+    partial_ratio = max((SequenceMatcher(None, tok, n).ratio() for tok in q_tokens), default=0.0)
+    return max(ratio, partial_ratio) + token_bonus
+

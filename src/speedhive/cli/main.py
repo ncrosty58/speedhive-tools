@@ -43,7 +43,7 @@ def _report_consistency(args):
         argv.extend(["--threshold", str(args.threshold)])
     if args.driver:
         argv.extend(["--driver", args.driver])
-    return _run_module_as_main("speedhive.analyzers.report_consistency", argv)
+    return _run_module_as_main("speedhive.analyzers.analyze_consistency", argv)
 
 
 def _extract_driver_laps(args):
@@ -58,7 +58,7 @@ def _extract_driver_laps(args):
         argv.extend(["--threshold", str(args.threshold)])
     if args.min_laps != 1:
         argv.extend(["--min-laps", str(args.min_laps)])
-    return _run_module_as_main("speedhive.analyzers.driver_laps", argv)
+    return _run_module_as_main("speedhive.analyzers.analyze_driver_laps", argv)
 
 
 def _extract_track_records(args):
@@ -69,7 +69,7 @@ def _extract_track_records(args):
         argv.extend(["--dump-dir", str(args.dump_dir)])
     if args.output:
         argv.extend(["--output", str(args.output)])
-    return _run_module_as_main("speedhive.processing.extract_track_records", argv)
+    return _run_module_as_main("speedhive.processing.process_track_records", argv)
 
 
 def _refresh_org_cache(args):
@@ -87,7 +87,7 @@ def _refresh_org_cache(args):
         argv.extend(["--recent-backfill-events", str(args.recent_backfill_events)])
     if args.token:
         argv.extend(["--token", args.token])
-    return _run_module_as_main("speedhive.exporters.refresh_org_cache", argv)
+    return _run_module_as_main("speedhive.exporters.export_org_cache", argv)
 
 
 def _to_sqlite(args):
@@ -96,7 +96,7 @@ def _to_sqlite(args):
         argv.extend(["--dump-dir", str(args.dump_dir)])
     if args.out_dir:
         argv.extend(["--out-dir", str(args.out_dir)])
-    return _run_module_as_main("speedhive.processing.ndjson_to_sqlite", argv)
+    return _run_module_as_main("speedhive.processing.process_sqlite_import", argv)
 
 
 def main():

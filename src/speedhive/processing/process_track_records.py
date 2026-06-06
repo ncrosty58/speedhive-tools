@@ -14,7 +14,7 @@ def extract_records(org: int, dump_dir: Path, classification: str | None = None)
     db_path = dump_dir / str(org) / f"laps_{org}.db"
     if not db_path.exists():
         # Run the sqlite ingestion first to build the database
-        from speedhive.processing.ndjson_to_sqlite import main as sqlite_main
+        from speedhive.processing.process_sqlite_import import main as sqlite_main
         sqlite_main(["--org", str(org), "--dump-dir", str(dump_dir)])
 
     # If it still doesn't exist (e.g. no dump files), return empty list
@@ -28,7 +28,7 @@ def extract_records(org: int, dump_dir: Path, classification: str | None = None)
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='track_records'")
         if not cur.fetchone():
             # Try running ingestion to create the table
-            from speedhive.processing.ndjson_to_sqlite import main as sqlite_main
+            from speedhive.processing.process_sqlite_import import main as sqlite_main
             sqlite_main(["--org", str(org), "--dump-dir", str(dump_dir)])
             cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='track_records'")
             if not cur.fetchone():

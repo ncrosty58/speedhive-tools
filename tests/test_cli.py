@@ -56,7 +56,7 @@ def test_refresh_org_cache_dispatches(mock_run):
         except SystemExit:
             pass
     mock_run.assert_called_once_with(
-        "speedhive.exporters.refresh_org_cache",
+        "speedhive.exporters.export_org_cache",
         [
             "--org",
             "30476",

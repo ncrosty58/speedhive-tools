@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from speedhive.processing.ndjson import open_ndjson
-from speedhive.processing.lap_analysis import compute_laps_and_enriched, parse_track_record_text
+from speedhive.processing.process_lap_analysis import compute_laps_and_enriched, parse_track_record_text
 
 
 def test_open_ndjson_plain():
