@@ -54,9 +54,15 @@ class SpeedhiveClient:
 
     @staticmethod
     def _parse_response(response) -> Any:
+        status_code = getattr(response, "status_code", None)
+        if isinstance(status_code, int) and status_code >= 400:
+            response.raise_for_status()
         if not response.content:
             return None
-        return json.loads(response.content)
+        try:
+            return json.loads(response.content)
+        except Exception:
+            return None
 
     # Organization
     def get_organization(self, org_id: int) -> Optional[Dict[str, Any]]:

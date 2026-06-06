@@ -1,12 +1,62 @@
 from __future__ import annotations
 
-"""Low‑level HTTP clients for the Speedhive API (no duplication)."""
+"""Low‑level HTTP clients for the Speedhive API with built-in retry transport."""
 
 import ssl
+import time
+import asyncio
 from typing import Any, Optional
 
 import httpx
 from attrs import define, field, evolve
+
+
+class HTTPXRetryTransport(httpx.HTTPTransport):
+    def __init__(self, max_retries=3, backoff_factor=1.0, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.max_retries = max_retries
+        self.backoff_factor = backoff_factor
+
+    def handle_request(self, request, *args, **kwargs):
+        retries = 0
+        while True:
+            try:
+                response = super().handle_request(request, *args, **kwargs)
+                if response.status_code in (429, 502, 503, 504) and retries < self.max_retries:
+                    response.raise_for_status()
+                return response
+            except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+                retries += 1
+                if retries > self.max_retries:
+                    if isinstance(exc, httpx.HTTPStatusError):
+                        return exc.response
+                    raise
+                sleep_time = self.backoff_factor * (2 ** (retries - 1))
+                time.sleep(sleep_time)
+
+
+class AsyncHTTPXRetryTransport(httpx.AsyncHTTPTransport):
+    def __init__(self, max_retries=3, backoff_factor=1.0, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.max_retries = max_retries
+        self.backoff_factor = backoff_factor
+
+    async def handle_async_request(self, request, *args, **kwargs):
+        retries = 0
+        while True:
+            try:
+                response = await super().handle_async_request(request, *args, **kwargs)
+                if response.status_code in (429, 502, 503, 504) and retries < self.max_retries:
+                    response.raise_for_status()
+                return response
+            except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+                retries += 1
+                if retries > self.max_retries:
+                    if isinstance(exc, httpx.HTTPStatusError):
+                        return exc.response
+                    raise
+                sleep_time = self.backoff_factor * (2 ** (retries - 1))
+                await asyncio.sleep(sleep_time)
 
 
 @define
@@ -22,7 +72,13 @@ class BaseClient:
     _async_client: Optional[httpx.AsyncClient] = field(default=None, init=False, repr=False)
 
     def _build_client(self, async_mode: bool = False):
-        cls_ = httpx.AsyncClient if async_mode else httpx.Client
+        if async_mode:
+            cls_ = httpx.AsyncClient
+            transport = AsyncHTTPXRetryTransport(verify=self.verify_ssl)
+        else:
+            cls_ = httpx.Client
+            transport = HTTPXRetryTransport(verify=self.verify_ssl)
+
         return cls_(
             base_url=self.base_url,
             cookies=self.cookies,
@@ -30,6 +86,7 @@ class BaseClient:
             timeout=self.timeout,
             verify=self.verify_ssl,
             follow_redirects=self.follow_redirects,
+            transport=transport,
         )
 
     def get_httpx_client(self) -> httpx.Client:
@@ -82,4 +139,3 @@ class AuthenticatedClient(BaseClient):
     def _build_client(self, async_mode: bool = False):
         self.headers[self.auth_header_name] = f"{self.prefix} {self.token}" if self.prefix else self.token
         return super()._build_client(async_mode)
-

@@ -167,11 +167,11 @@ def import_dump_to_storage(org: int, dump_dir: Path, db_path: Path) -> Dict[str,
 
 
 def ingest_events(in_path: Path, conn: sqlite3.Connection) -> int:
-    """Ingest events into events table."""
+    """Ingest events into analytical_events table."""
     cur = conn.cursor()
     cur.execute(
         """
-        CREATE TABLE IF NOT EXISTS events (
+        CREATE TABLE IF NOT EXISTS analytical_events (
             event_id INTEGER PRIMARY KEY,
             name TEXT,
             date TEXT,
@@ -208,7 +208,7 @@ def ingest_events(in_path: Path, conn: sqlite3.Connection) -> int:
         country = e.get("country") or org.get("country")
 
         cur.execute(
-            "INSERT OR REPLACE INTO events VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO analytical_events VALUES (?,?,?,?,?,?,?,?)",
             (event_id, name, date, end_date, org_id, org_name, location, country),
         )
         inserted += 1
@@ -230,11 +230,11 @@ def _iter_sessions(record: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
 
 
 def ingest_sessions(in_path: Path, conn: sqlite3.Connection) -> int:
-    """Ingest sessions into sessions table."""
+    """Ingest sessions into analytical_sessions table."""
     cur = conn.cursor()
     cur.execute(
         """
-        CREATE TABLE IF NOT EXISTS sessions (
+        CREATE TABLE IF NOT EXISTS analytical_sessions (
             event_id INTEGER,
             session_id INTEGER PRIMARY KEY,
             name TEXT,
@@ -265,7 +265,7 @@ def ingest_sessions(in_path: Path, conn: sqlite3.Connection) -> int:
             end_time = session.get("endTime") or session.get("end_time")
 
             cur.execute(
-                "INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?)",
+                "INSERT OR REPLACE INTO analytical_sessions VALUES (?,?,?,?,?)",
                 (event_id, session_id, name, start_time, end_time),
             )
             inserted += 1
@@ -542,6 +542,27 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     summary = import_dump_to_storage(args.org, args.dump_dir, args.db_path)
+
+    # Ingest analytical tables
+    dump = args.dump_dir / str(args.org)
+    if dump.exists():
+        event_names = load_event_names(_prefer_gz(dump / "events.ndjson"))
+        session_map = load_session_map(args.dump_dir, args.org)
+
+        conn = sqlite3.connect(args.db_path)
+        try:
+            ingest_events(_prefer_gz(dump / "events.ndjson"), conn)
+            ingest_sessions(_prefer_gz(dump / "sessions.ndjson"), conn)
+            ingest_laps(_prefer_gz(dump / "laps.ndjson"), conn)
+            ingest_announcements(_prefer_gz(dump / "announcements.ndjson"), conn, event_names, session_map)
+            ingest_results(_prefer_gz(dump / "results.ndjson"), conn)
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            raise exc
+        finally:
+            conn.close()
+
     print(f"Imported dump for org {args.org} into primary cache: {args.db_path}")
     print(
         f"events={summary['events']} sessions={summary['sessions']} "

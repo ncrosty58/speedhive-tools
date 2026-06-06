@@ -80,7 +80,7 @@ def test_ndjson_to_sqlite_full_ingest(tmp_path):
     # Run full ingest using main
     from speedhive.processing.process_sqlite_import import main as sqlite_main
 
-    argv = ["--org", str(org), "--dump-dir", str(dump_dir), "--out-dir", str(tmp_path)]
+    argv = ["--org", str(org), "--dump-dir", str(dump_dir), "--db-path", str(tmp_path / f"laps_{org}.db")]
     exit_code = sqlite_main(argv)
     assert exit_code == 0
 
@@ -92,12 +92,12 @@ def test_ndjson_to_sqlite_full_ingest(tmp_path):
     cur = conn.cursor()
 
     # Verify events
-    cur.execute("SELECT event_id, name, location FROM events")
+    cur.execute("SELECT event_id, name, location FROM analytical_events")
     event_row = cur.fetchone()
     assert event_row == (1, "Summer Race", "Track A")
 
     # Verify sessions
-    cur.execute("SELECT session_id, name FROM sessions")
+    cur.execute("SELECT session_id, name FROM analytical_sessions")
     sess_row = cur.fetchone()
     assert sess_row == (10, "Qualifying")
 
