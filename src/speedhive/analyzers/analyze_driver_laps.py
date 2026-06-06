@@ -110,6 +110,7 @@ def main(argv=None) -> int:
     parser.add_argument("--out-dir", type=Path, default=Path("output"))
     parser.add_argument("--threshold", type=float, default=0.85)
     parser.add_argument("--min-laps", type=int, default=0)
+    parser.add_argument("--ignore-outliers", action="store_true", help="Ignore outlier lap times using IQR method")
     args = parser.parse_args(argv)
 
     if args.db_path.exists():
@@ -117,13 +118,13 @@ def main(argv=None) -> int:
 
         storage = SpeedhiveStorage(args.db_path)
         if storage.org_has_sessions(args.org):
-            laps_map, enriched = compute_laps_and_enriched_from_storage(storage, args.org)
+            laps_map, enriched = compute_laps_and_enriched_from_storage(storage, args.org, ignore_outliers=args.ignore_outliers)
             session_map = load_session_types_from_storage(storage, args.org)
         else:
-            laps_map, enriched = compute_laps_and_enriched(args.dump_dir, args.org)
+            laps_map, enriched = compute_laps_and_enriched(args.dump_dir, args.org, ignore_outliers=args.ignore_outliers)
             session_map = load_session_map(args.dump_dir, args.org)
     else:
-        laps_map, enriched = compute_laps_and_enriched(args.dump_dir, args.org)
+        laps_map, enriched = compute_laps_and_enriched(args.dump_dir, args.org, ignore_outliers=args.ignore_outliers)
         session_map = load_session_map(args.dump_dir, args.org)
 
     index = None
@@ -217,6 +218,17 @@ def main(argv=None) -> int:
     if not selected_laps_details:
         print(f"No race laps found for query '{args.driver}'")
         return 1
+
+    if args.ignore_outliers:
+        laps_only = [row["lap"] for row in selected_laps_details]
+        if len(laps_only) >= 4:
+            import statistics
+            q = statistics.quantiles(sorted(laps_only), n=4)
+            q1, q3 = q[0], q[2]
+            iqr = q3 - q1
+            lower = q1 - 1.5 * iqr
+            upper = q3 + 1.5 * iqr
+            selected_laps_details = [row for row in selected_laps_details if lower <= row["lap"] <= upper]
 
     lap_values = [row["lap"] for row in selected_laps_details]
     stats = compute_stats(lap_values)

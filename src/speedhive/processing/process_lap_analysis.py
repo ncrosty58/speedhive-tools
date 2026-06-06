@@ -157,10 +157,28 @@ def _assign_key(row, sid: str, pos_map: Dict[int, str]) -> str:
     return key
 
 
+def filter_outliers_iqr(laps: List[float]) -> List[float]:
+    """Filter out outliers from a list of lap times using the IQR (Interquartile Range) method.
+
+    Laps outside [Q1 - 1.5 * IQR, Q3 + 1.5 * IQR] are considered outliers.
+    """
+    if len(laps) < 4:
+        return laps
+    sorted_laps = sorted(laps)
+    q = statistics.quantiles(sorted_laps, n=4)
+    q1 = q[0]
+    q3 = q[2]
+    iqr = q3 - q1
+    lower_bound = q1 - 1.5 * iqr
+    upper_bound = q3 + 1.5 * iqr
+    return [lap for lap in laps if lower_bound <= lap <= upper_bound]
+
+
 def _compute_laps_and_enriched_from_payloads(
     sessions: Dict[str, Dict[str, Any]],
     results_payloads: Dict[str, List[Any]],
     laps_payloads: Dict[str, List[Any]],
+    ignore_outliers: bool = False,
 ):
     session_pos_map = {sid: _build_pos_name_map(raw) for sid, raw in sessions.items()}
 
@@ -219,10 +237,15 @@ def _compute_laps_and_enriched_from_payloads(
     for key, laps in laps_by_driver.items():
         if not isinstance(laps, list) or not laps:
             continue
-        n = len(laps)
-        m = statistics.mean(laps)
-        med = statistics.median(laps)
-        sd = statistics.stdev(laps) if n > 1 else 0.0
+        
+        filtered_laps = filter_outliers_iqr(laps) if ignore_outliers else laps
+        if not filtered_laps:
+            filtered_laps = laps
+
+        n = len(filtered_laps)
+        m = statistics.mean(filtered_laps)
+        med = statistics.median(filtered_laps)
+        sd = statistics.stdev(filtered_laps) if n > 1 else 0.0
         cv = sd / m if m else None
         name = None
         sess_match = re.match(r"session(\d+)_pos(\d+)", key)
@@ -240,12 +263,14 @@ def _compute_laps_and_enriched_from_payloads(
             "stdev": sd,
             "cv": cv,
             "session_keys": session_keys,
+            "raw_laps": laps,
+            "filtered_laps": filtered_laps,
         }
 
     return dict(laps_by_driver), enriched
 
 
-def compute_laps_and_enriched(dump_dir: Path, org: int):
+def compute_laps_and_enriched(dump_dir: Path, org: int, ignore_outliers: bool = False):
     """Compute laps_by_driver and enriched mappings from an export directory.
 
     Returns a tuple (laps_by_driver: Dict[str, List[float]], enriched: Dict[str, Dict])
@@ -294,15 +319,15 @@ def compute_laps_and_enriched(dump_dir: Path, org: int):
                 continue
             laps_payloads[sid] = rows
 
-    return _compute_laps_and_enriched_from_payloads(sessions, results_payloads, laps_payloads)
+    return _compute_laps_and_enriched_from_payloads(sessions, results_payloads, laps_payloads, ignore_outliers=ignore_outliers)
 
 
-def compute_laps_and_enriched_from_storage(storage: "SpeedhiveStorage", org: int):
+def compute_laps_and_enriched_from_storage(storage: "SpeedhiveStorage", org: int, ignore_outliers: bool = False):
     """Compute laps_by_driver and enriched mappings from SQLite-backed cache."""
     sessions = storage.load_session_payloads(org)
     results_payloads = storage.load_results_payloads(org)
     laps_payloads = storage.load_laps_payloads(org)
-    return _compute_laps_and_enriched_from_payloads(sessions, results_payloads, laps_payloads)
+    return _compute_laps_and_enriched_from_payloads(sessions, results_payloads, laps_payloads, ignore_outliers=ignore_outliers)
 
 
 def parse_track_record_text(text: str) -> Optional[Dict[str, Any]]:
@@ -376,7 +401,7 @@ def first_non_empty(*values: Any) -> Any:
     return None
 
 
-def compute_lap_statistics(laps: List[Dict[str, Any]]) -> Dict[str, Any]:
+def compute_lap_statistics(laps: List[Dict[str, Any]], ignore_outliers: bool = False) -> Dict[str, Any]:
     """Compute consistency, mean, median, stdev, and CV statistics for a list of laps."""
     times = []
     best_time_sec = float('inf')
@@ -404,10 +429,14 @@ def compute_lap_statistics(laps: List[Dict[str, Any]]) -> Dict[str, Any]:
             "cv_raw": None,
         }
 
-    lap_count = len(times)
-    mean_val = statistics.mean(times)
-    median_val = statistics.median(times)
-    stdev_val = statistics.stdev(times) if len(times) > 1 else 0.0
+    filtered_times = filter_outliers_iqr(times) if ignore_outliers else times
+    if not filtered_times:
+        filtered_times = times
+
+    lap_count = len(filtered_times)
+    mean_val = statistics.mean(filtered_times)
+    median_val = statistics.median(filtered_times)
+    stdev_val = statistics.stdev(filtered_times) if len(filtered_times) > 1 else 0.0
     cv_val = stdev_val / mean_val if mean_val > 0 else 0.0
 
     return {

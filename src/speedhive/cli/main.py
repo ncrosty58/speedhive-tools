@@ -50,6 +50,8 @@ def _report_consistency(args):
         argv.extend(["--threshold", str(args.threshold)])
     if args.driver:
         argv.extend(["--driver", args.driver])
+    if args.ignore_outliers:
+        argv.append("--ignore-outliers")
     return _run_module_as_main("speedhive.analyzers.analyze_consistency", argv)
 
 
@@ -67,6 +69,8 @@ def _extract_driver_laps(args):
         argv.extend(["--threshold", str(args.threshold)])
     if args.min_laps != 1:
         argv.extend(["--min-laps", str(args.min_laps)])
+    if args.ignore_outliers:
+        argv.append("--ignore-outliers")
     return _run_module_as_main("speedhive.analyzers.analyze_driver_laps", argv)
 
 
@@ -130,6 +134,7 @@ def main():
     p.add_argument("--top", type=int, default=10)
     p.add_argument("--threshold", type=float, default=0.85)
     p.add_argument("--driver", default=None)
+    p.add_argument("--ignore-outliers", action="store_true", help="Ignore outlier lap times using IQR method")
     p.set_defaults(func=_report_consistency)
 
     p = sub.add_parser("extract-driver-laps", help="Extract laps for a driver from the primary SQLite cache")
@@ -141,6 +146,7 @@ def main():
     p.add_argument("--out-dir", type=Path, default=Path("./output"), help="Output directory for generated reports")
     p.add_argument("--threshold", type=float, default=0.8)
     p.add_argument("--min-laps", type=int, default=1)
+    p.add_argument("--ignore-outliers", action="store_true", help="Ignore outlier lap times using IQR method")
     p.set_defaults(func=_extract_driver_laps)
 
     p = sub.add_parser("extract-track-records", help="Extract track records from the primary SQLite cache to JSON")

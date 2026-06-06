@@ -13,6 +13,7 @@ from speedhive.processing.process_lap_analysis import (
     compute_laps_and_enriched,
     compute_laps_and_enriched_from_storage,
     normalize_name,
+    format_seconds,
 )
 from speedhive.processing.ndjson import open_ndjson
 
@@ -228,6 +229,43 @@ def cluster_names(by_name: Dict[str, Dict], threshold: float = 0.85) -> Dict[str
     return merged
 
 
+def get_consistency_rankings(
+    clustered: Dict[str, Dict],
+    min_laps: int = 20,
+    limit: int = 15,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], int, int]:
+    """Process clustered stats to get top/least consistent drivers and overall stats.
+
+    Returns (top_consistent, least_consistent, total_drivers, total_laps_analyzed)
+    """
+    rows = []
+    for name, data in clustered.items():
+        if data.get("lap_count", 0) >= min_laps and data.get("cv") is not None:
+            mean_v = data["mean"]
+            stdev_v = data["stdev"]
+            cv_v = data["cv"]
+            rows.append({
+                "name": name,
+                "lap_count": data["lap_count"],
+                "mean": mean_v,
+                "mean_display": format_seconds(mean_v),
+                "stdev": stdev_v,
+                "stdev_display": f"{stdev_v:.3f}s" if stdev_v else "N/A",
+                "cv": cv_v,
+                "cv_display": f"{cv_v * 100:.2f}%" if cv_v is not None else "N/A",
+                "aliases": data.get("aliases", []),
+            })
+
+    rows.sort(key=lambda r: r["cv"])
+    top_consistent = rows[:limit]
+    least_consistent = sorted(rows, key=lambda r: r["cv"], reverse=True)[:limit]
+
+    total_drivers = len(clustered)
+    total_laps_analyzed = sum(d.get("lap_count", 0) for d in clustered.values())
+
+    return top_consistent, least_consistent, total_drivers, total_laps_analyzed
+
+
 def print_top_bottom(by_name: Dict[str, Dict], top_n: int = 10, min_laps: int = 20) -> None:
     """Print top and bottom CV rankings."""
     rows = [
@@ -324,6 +362,7 @@ def main(argv=None) -> int:
     parser.add_argument("--top", type=int, default=10)
     parser.add_argument("--threshold", type=float, default=0.85)
     parser.add_argument("--driver", "--name", dest="driver", type=str, default=None)
+    parser.add_argument("--ignore-outliers", action="store_true", help="Ignore outlier lap times using IQR method")
     args = parser.parse_args(argv)
 
     if args.db_path.exists():
@@ -331,13 +370,13 @@ def main(argv=None) -> int:
 
         storage = SpeedhiveStorage(args.db_path)
         if storage.org_has_sessions(args.org):
-            _, enriched = compute_laps_and_enriched_from_storage(storage, args.org)
+            _, enriched = compute_laps_and_enriched_from_storage(storage, args.org, ignore_outliers=args.ignore_outliers)
             session_map = load_session_types_from_storage(storage, args.org)
         else:
-            _, enriched = compute_laps_and_enriched(args.dump_dir, args.org)
+            _, enriched = compute_laps_and_enriched(args.dump_dir, args.org, ignore_outliers=args.ignore_outliers)
             session_map = load_session_types(args.dump_dir, args.org)
     else:
-        _, enriched = compute_laps_and_enriched(args.dump_dir, args.org)
+        _, enriched = compute_laps_and_enriched(args.dump_dir, args.org, ignore_outliers=args.ignore_outliers)
         session_map = load_session_types(args.dump_dir, args.org)
     by_name = aggregate_by_name(enriched, session_map)
     clustered = cluster_names(by_name, threshold=args.threshold)
