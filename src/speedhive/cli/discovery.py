@@ -40,14 +40,23 @@ def register_discovered(subparsers):
         if hasattr(mod, "register_subparser") and callable(getattr(mod, "register_subparser")):
             try:
                 sp = subparsers.add_parser(cmd, help=f"{cat} ({cmd})")
+            except Exception:
+                # If add_parser fails (e.g. conflicting name already added), skip or handle
+                continue
+            try:
                 mod.register_subparser(sp)
                 sp.set_defaults(_module=mod)
-            except Exception:
-                sp = subparsers.add_parser(cmd, help=f"{cat} ({cmd})")
+            except Exception as e:
+                # Print exception or log it to help debugging
+                import traceback
+                print(f"Error registering subparser for {cmd}: {e}")
+                traceback.print_exc()
                 sp.add_argument("extra_args", nargs="*")
                 sp.set_defaults(_module=mod)
         else:
-            sp = subparsers.add_parser(cmd, help=f"{cat} ({cmd})")
-            sp.add_argument("extra_args", nargs="*")
-            sp.set_defaults(_module=mod)
-
+            try:
+                sp = subparsers.add_parser(cmd, help=f"{cat} ({cmd})")
+                sp.add_argument("extra_args", nargs="*")
+                sp.set_defaults(_module=mod)
+            except Exception:
+                continue
