@@ -72,10 +72,11 @@ class Client(BaseClient):
 
 @define
 class AuthenticatedClient(BaseClient):
-    token: str
+    token: str = field(kw_only=True)
     prefix: str = "Bearer"
     auth_header_name: str = "Authorization"
 
     def _build_client(self, async_mode: bool = False):
         self.headers[self.auth_header_name] = f"{self.prefix} {self.token}" if self.prefix else self.token
         return super()._build_client(async_mode)
+
