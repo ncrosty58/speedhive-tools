@@ -115,22 +115,22 @@ class TestSpeedhiveClientParseResponse:
         assert result == {"name": "test", "value": 123}
 
 
-class TestExtractEventsToCSV:
-    """Test the events extractor."""
+class TestNDJSONToSQLite:
+    """Test the SQLite extractor."""
 
-    def test_extract_events_to_csv_exists(self):
+    def test_ndjson_to_sqlite_exists(self):
         import importlib
 
-        modname = "speedhive.processing.extract_events_to_csv"
+        modname = "speedhive.processing.ndjson_to_sqlite"
         try:
             importlib.import_module(modname)
         except Exception as exc:  # pragma: no cover - test should fail if import fails
             pytest.fail(f"Could not import {modname}: {exc}")
 
-    def test_extract_events_has_main(self):
+    def test_ndjson_to_sqlite_has_main(self):
         import importlib
         import inspect
 
-        mod = importlib.import_module("speedhive.processing.extract_events_to_csv")
-        # ensure at least the module exposes a callable main or extract function
-        assert (hasattr(mod, "main") and inspect.isfunction(mod.main)) or hasattr(mod, "extract")
+        mod = importlib.import_module("speedhive.processing.ndjson_to_sqlite")
+        # ensure at least the module exposes a callable main function
+        assert hasattr(mod, "main") and inspect.isfunction(mod.main)

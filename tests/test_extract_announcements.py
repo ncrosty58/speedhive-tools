@@ -1,12 +1,13 @@
 import gzip
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from speedhive.processing.extract_announcements_to_csv import extract
+from speedhive.processing.ndjson_to_sqlite import ingest_announcements
 
 
 def make_ndjson_gz(path: Path, lines: list):
@@ -19,7 +20,7 @@ def make_ndjson_gz(path: Path, lines: list):
 
 def test_extract_announcements_various_shapes(tmp_path: Path):
     in_gz = tmp_path / "ann.ndjson.gz"
-    out_csv = tmp_path / "announcements.csv"
+    db_path = tmp_path / "test.db"
 
     lines = [
         # announcements wrapped under 'announcements' -> 'rows'
@@ -32,18 +33,23 @@ def test_extract_announcements_various_shapes(tmp_path: Path):
 
     make_ndjson_gz(in_gz, lines)
 
-    count = extract(in_gz, out_csv)
+    conn = sqlite3.connect(db_path)
+    try:
+        count = ingest_announcements(in_gz, conn)
+        conn.commit()
+    finally:
+        conn.close()
+
     assert count == 4
 
-    # verify CSV exists and has header + 4 lines
-    text = out_csv.read_text(encoding="utf8")
-    assert "event_id,session_id,ts,text" in text.splitlines()[0]
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute("SELECT event_id, session_id, ts, text FROM announcements")
+    rows = cur.fetchall()
+    conn.close()
 
-    # summary file should be created next to CSV
-    summary_path = out_csv.parent / "announcements_summary.json"
-    assert summary_path.exists()
-    summary = json.loads(summary_path.read_text(encoding="utf8"))
-    assert summary.get("total") == 4
-    assert summary.get("by_event").get("1") == 2
-    assert summary.get("by_event").get("2") == 1
-    assert summary.get("by_event").get("3") == 1
+    assert len(rows) == 4
+    assert rows[0] == (1, 10, "t1", "a")
+    assert rows[1] == (1, 10, "t2", "b")
+    assert rows[2] == (2, 20, "t3", "c")
+    assert rows[3] == (3, 30, "t4", "d")

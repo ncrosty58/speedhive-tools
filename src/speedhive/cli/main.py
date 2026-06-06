@@ -7,6 +7,7 @@ from pathlib import Path
 
 from speedhive.cli.discovery import register_discovered
 
+
 def _run_module_as_main(module_name: str, args):
     import importlib
     mod = importlib.import_module(module_name)
@@ -14,41 +15,62 @@ def _run_module_as_main(module_name: str, args):
         return mod.main(argv=args)
     raise RuntimeError(f"Module {module_name} has no main(argv)")
 
+
 def _export_full_dump(args):
     argv = ["--org", str(args.org), "--output", str(args.output)]
-    if args.verbose: argv.append("--verbose")
-    if args.no_resume: argv.append("--no-resume")
-    if args.max_events: argv.extend(["--max-events", str(args.max_events)])
-    if args.concurrency != 5: argv.extend(["--concurrency", str(args.concurrency)])
+    if args.verbose:
+        argv.append("--verbose")
+    if args.no_resume:
+        argv.append("--no-resume")
+    if args.max_events:
+        argv.extend(["--max-events", str(args.max_events)])
+    if args.concurrency != 5:
+        argv.extend(["--concurrency", str(args.concurrency)])
     return _run_module_as_main("speedhive.exporters.export_full_dump", argv)
+
 
 def _report_consistency(args):
     argv = ["--org", str(args.org)]
-    if args.dump_dir != "./output": argv.extend(["--dump-dir", str(args.dump_dir)])
-    if args.out_dir != "./output": argv.extend(["--out-dir", str(args.out_dir)])
-    if args.min_laps != 20: argv.extend(["--min-laps", str(args.min_laps)])
-    if args.top != 10: argv.extend(["--top", str(args.top)])
-    if args.threshold != 0.85: argv.extend(["--threshold", str(args.threshold)])
-    if args.driver: argv.extend(["--driver", args.driver])
+    if args.dump_dir != "./output":
+        argv.extend(["--dump-dir", str(args.dump_dir)])
+    if args.out_dir != "./output":
+        argv.extend(["--out-dir", str(args.out_dir)])
+    if args.min_laps != 20:
+        argv.extend(["--min-laps", str(args.min_laps)])
+    if args.top != 10:
+        argv.extend(["--top", str(args.top)])
+    if args.threshold != 0.85:
+        argv.extend(["--threshold", str(args.threshold)])
+    if args.driver:
+        argv.extend(["--driver", args.driver])
     return _run_module_as_main("speedhive.analyzers.report_consistency", argv)
+
 
 def _extract_driver_laps(args):
     argv = ["--org", str(args.org), "--driver", args.driver]
-    if args.driver_keys: argv.extend(["--driver-keys", args.driver_keys])
-    if args.dump_dir != Path("./output"): argv.extend(["--dump-dir", str(args.dump_dir)])
-    if args.out_dir != Path("./output"): argv.extend(["--out-dir", str(args.out_dir)])
-    if args.threshold != 0.8: argv.extend(["--threshold", str(args.threshold)])
-    if args.min_laps != 1: argv.extend(["--min-laps", str(args.min_laps)])
+    if args.driver_keys:
+        argv.extend(["--driver-keys", args.driver_keys])
+    if args.dump_dir != Path("./output"):
+        argv.extend(["--dump-dir", str(args.dump_dir)])
+    if args.out_dir != Path("./output"):
+        argv.extend(["--out-dir", str(args.out_dir)])
+    if args.threshold != 0.8:
+        argv.extend(["--threshold", str(args.threshold)])
+    if args.min_laps != 1:
+        argv.extend(["--min-laps", str(args.min_laps)])
     return _run_module_as_main("speedhive.analyzers.driver_laps", argv)
+
 
 def _extract_track_records(args):
     argv = ["--org", str(args.org)]
-    if args.classification: argv.extend(["--classification", args.classification])
-    if args.dump_dir != Path("./output"): argv.extend(["--dump-dir", str(args.dump_dir)])
-    if args.format != "json": argv.extend(["--format", args.format])
-    if args.out_dir: argv.extend(["--out-dir", str(args.out_dir)])
-    if args.output: argv.extend(["--output", str(args.output)])
-    return _run_module_as_main("speedhive.analyzers.extract_track_records", argv)
+    if args.classification:
+        argv.extend(["--classification", args.classification])
+    if args.dump_dir != Path("./output"):
+        argv.extend(["--dump-dir", str(args.dump_dir)])
+    if args.output:
+        argv.extend(["--output", str(args.output)])
+    return _run_module_as_main("speedhive.processing.extract_track_records", argv)
+
 
 def _refresh_org_cache(args):
     argv = [
@@ -67,35 +89,15 @@ def _refresh_org_cache(args):
         argv.extend(["--token", args.token])
     return _run_module_as_main("speedhive.exporters.refresh_org_cache", argv)
 
-def _extract_events_csv(args):
-    argv = ["--org", str(args.org)]
-    if args.dump_dir != Path("./output"): argv.extend(["--dump-dir", str(args.dump_dir)])
-    if args.out_dir: argv.extend(["--out-dir", str(args.out_dir)])
-    return _run_module_as_main("speedhive.processing.extract_events_to_csv", argv)
 
-def _extract_sessions_csv(args):
+def _to_sqlite(args):
     argv = ["--org", str(args.org)]
-    if args.dump_dir != Path("./output"): argv.extend(["--dump-dir", str(args.dump_dir)])
-    if args.out_dir: argv.extend(["--out-dir", str(args.out_dir)])
-    return _run_module_as_main("speedhive.processing.extract_sessions_to_csv", argv)
-
-def _extract_laps_csv(args):
-    argv = ["--org", str(args.org)]
-    if args.dump_dir != Path("./output"): argv.extend(["--dump-dir", str(args.dump_dir)])
-    if args.out_dir: argv.extend(["--out-dir", str(args.out_dir)])
-    return _run_module_as_main("speedhive.processing.extract_laps_to_csv", argv)
-
-def _extract_announcements_csv(args):
-    argv = ["--org", str(args.org)]
-    if args.dump_dir != Path("./output"): argv.extend(["--dump-dir", str(args.dump_dir)])
-    if args.out_dir: argv.extend(["--out-dir", str(args.out_dir)])
-    return _run_module_as_main("speedhive.processing.extract_announcements_to_csv", argv)
-
-def _laps_to_sqlite(args):
-    argv = ["--org", str(args.org)]
-    if args.dump_dir != Path("./output"): argv.extend(["--dump-dir", str(args.dump_dir)])
-    if args.out_dir: argv.extend(["--out-dir", str(args.out_dir)])
+    if args.dump_dir != Path("./output"):
+        argv.extend(["--dump-dir", str(args.dump_dir)])
+    if args.out_dir:
+        argv.extend(["--out-dir", str(args.out_dir)])
     return _run_module_as_main("speedhive.processing.ndjson_to_sqlite", argv)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Speedhive Tools")
@@ -130,13 +132,11 @@ def main():
     p.add_argument("--min-laps", type=int, default=1)
     p.set_defaults(func=_extract_driver_laps)
 
-    p = sub.add_parser("extract-track-records", help="Extract track records from announcements dump")
+    p = sub.add_parser("extract-track-records", help="Extract track records from announcements dump to JSON")
     p.add_argument("--org", type=int, required=True)
     p.add_argument("--classification", default=None)
     p.add_argument("--dump-dir", type=Path, default=Path("./output"))
-    p.add_argument("--format", choices=["json", "csv"], default="json", help="Output format")
-    p.add_argument("--out-dir", type=Path, default=None, help="Output directory (CSV mode)")
-    p.add_argument("--output", default=None, help="Output file path (JSON mode)")
+    p.add_argument("--output", default=None, help="Output file path (JSON)")
     p.set_defaults(func=_extract_track_records)
 
     p = sub.add_parser("refresh-org-cache", help="Refresh org cache (full or incremental)")
@@ -148,35 +148,11 @@ def main():
     p.add_argument("--token", default=None)
     p.set_defaults(func=_refresh_org_cache)
 
-    p = sub.add_parser("extract-events-csv", help="Extract events NDJSON dump to flat CSV")
+    p = sub.add_parser("to-sqlite", help="Import offline NDJSON organization dumps into SQLite")
     p.add_argument("--org", type=int, required=True)
     p.add_argument("--dump-dir", type=Path, default=Path("./output"))
     p.add_argument("--out-dir", type=Path, default=None)
-    p.set_defaults(func=_extract_events_csv)
-
-    p = sub.add_parser("extract-sessions-csv", help="Extract sessions NDJSON dump to flat CSV")
-    p.add_argument("--org", type=int, required=True)
-    p.add_argument("--dump-dir", type=Path, default=Path("./output"))
-    p.add_argument("--out-dir", type=Path, default=None)
-    p.set_defaults(func=_extract_sessions_csv)
-
-    p = sub.add_parser("extract-laps-csv", help="Extract laps NDJSON dump to flat CSV")
-    p.add_argument("--org", type=int, required=True)
-    p.add_argument("--dump-dir", type=Path, default=Path("./output"))
-    p.add_argument("--out-dir", type=Path, default=None)
-    p.set_defaults(func=_extract_laps_csv)
-
-    p = sub.add_parser("extract-announcements-csv", help="Extract announcements NDJSON dump to flat CSV")
-    p.add_argument("--org", type=int, required=True)
-    p.add_argument("--dump-dir", type=Path, default=Path("./output"))
-    p.add_argument("--out-dir", type=Path, default=None)
-    p.set_defaults(func=_extract_announcements_csv)
-
-    p = sub.add_parser("laps-to-sqlite", help="Import laps NDJSON dump into SQLite")
-    p.add_argument("--org", type=int, required=True)
-    p.add_argument("--dump-dir", type=Path, default=Path("./output"))
-    p.add_argument("--out-dir", type=Path, default=None)
-    p.set_defaults(func=_laps_to_sqlite)
+    p.set_defaults(func=_to_sqlite)
 
     register_discovered(sub)
 
@@ -186,6 +162,7 @@ def main():
     else:
         parser.print_help()
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())
