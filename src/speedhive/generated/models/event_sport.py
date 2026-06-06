@@ -17,3 +17,6 @@ class EventSport(str, Enum):
     STOCKCAR = "StockCar"
     SWIMMING = "Swimming"
     UNKNOWN = "Unknown"
+
+    def __str__(self) -> str:
+        return str(self.value)

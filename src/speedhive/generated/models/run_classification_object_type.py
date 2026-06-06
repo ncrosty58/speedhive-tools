@@ -9,3 +9,6 @@ class RunClassificationObjectType(str, Enum):
     RACE = "Race"
     RACEMERGE = "RaceMerge"
     TIMETRIAL = "Timetrial"
+
+    def __str__(self) -> str:
+        return str(self.value)

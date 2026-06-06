@@ -70,7 +70,7 @@ class SpeedhiveClient:
         response = get_event_list.sync_detailed(**kwargs)
         result = self._parse_response(response)
         if isinstance(result, dict):
-            return result.get("rows", [])
+            return result.get("rows", result.get("events", []))
         return result if isinstance(result, list) else []
 
     def iter_events(self, org_id: int, page_size: int = 100) -> Iterator[Dict[str, Any]]:
@@ -100,10 +100,9 @@ class SpeedhiveClient:
             sessions = []
             if isinstance(result.get("sessions"), list):
                 sessions.extend(result["sessions"])
-            if isinstance(result.get("groups"), list):
-                for g in result["groups"]:
-                    if isinstance(g.get("sessions"), list):
-                        sessions.extend(g["sessions"])
+            for g in result.get("groups", []):
+                if isinstance(g, dict) and isinstance(g.get("sessions"), list):
+                    sessions.extend(g["sessions"])
             return sessions
         return []
 
