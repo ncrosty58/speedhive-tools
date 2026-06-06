@@ -63,7 +63,41 @@ def is_race_session(session_raw: Dict) -> bool:
     return False
 
 
-def aggregate_by_name(enriched: Dict[str, Dict], session_map: Dict[str, Dict]) -> Dict[str, Dict]:
+def matches_session_type(session_raw: Dict, session_type: str) -> bool:
+    if not isinstance(session_raw, dict):
+        return False
+    if session_type == "all":
+        return True
+
+    kind = session_raw.get("type") or session_raw.get("sessionType") or session_raw.get("raceType") or ""
+    if not isinstance(kind, str):
+        kind = ""
+    kind = kind.lower()
+
+    name = session_raw.get("name") or session_raw.get("sessionName") or ""
+    if not isinstance(name, str):
+        name = ""
+    name = name.lower()
+
+    class_val = ""
+    for key in ("classification", "class", "classificationName", "className"):
+        val = session_raw.get(key)
+        if isinstance(val, str):
+            class_val = val.lower()
+            break
+
+    if session_type == "qualifying":
+        return "qual" in kind or "qual" in name or "qual" in class_val
+    elif session_type == "practice":
+        for term in ("practice", "warmup", "warm-up", "test", "practice"):
+            if term in kind or term in name or term in class_val:
+                return True
+        return False
+    else: # default is "race"
+        return is_race_session(session_raw)
+
+
+def aggregate_by_name(enriched: Dict[str, Dict], session_map: Dict[str, Dict], session_type: str = "race") -> Dict[str, Dict]:
     """Pool per-driver-key statistics by driver display name."""
     grouped: Dict[str, List[Tuple[int, float, float]]] = defaultdict(list)
     for _, value in enriched.items():
@@ -78,7 +112,7 @@ def aggregate_by_name(enriched: Dict[str, Dict], session_map: Dict[str, Dict]) -
                 continue
             try:
                 sid = session_key.split("_")[0].replace("session", "")
-                if is_race_session(session_map.get(sid, {})):
+                if matches_session_type(session_map.get(sid, {}), session_type):
                     include = True
                     break
             except Exception:
