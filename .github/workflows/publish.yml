@@ -33,9 +33,21 @@ jobs:
       - name: Build distributions
         run: python -m build
 
+      - name: Smoke test wheel
+        run: |
+          python -m venv test_venv
+          ./test_venv/bin/pip install dist/*.whl
+          ./test_venv/bin/python -c "from speedhive.wrapper import SpeedhiveClient; print('Smoke test OK')"
+
       - name: Publish to PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           python -m twine upload dist/* --skip-existing
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ github.ref_name }} --generate-notes --latest
