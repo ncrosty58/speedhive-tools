@@ -1,0 +1,2 @@
+This file triggers releases via git tags.
+Creating tags for v0.6.1 and v0.6.2.
