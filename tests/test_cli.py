@@ -91,3 +91,26 @@ def test_discovery_registers_builtin():
     assert "export-dump" in choices
     assert "sync-org" in choices
     assert "report-consistency" in choices
+
+
+@patch("speedhive.cli.main._run_module_as_main")
+def test_export_lap_records_dispatches(mock_run):
+    with patch(
+        "sys.argv",
+        [
+            "speedhive",
+            "export-lap-records",
+            "--org",
+            "30476",
+            "--max-events",
+            "10",
+        ],
+    ):
+        try:
+            main()
+        except SystemExit:
+            pass
+    mock_run.assert_called_once_with(
+        "speedhive.exporters.export_lap_records",
+        ["--org", "30476", "--max-events", "10"],
+    )
