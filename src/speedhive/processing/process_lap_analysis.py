@@ -505,3 +505,124 @@ def name_match_score(query: str, name: str) -> float:
         token_bonus += 0.20
     partial_ratio = max((SequenceMatcher(None, tok, n).ratio() for tok in q_tokens), default=0.0)
     return max(ratio, partial_ratio) + token_bonus
+
+
+def format_gap_display(gap: Any) -> Optional[str]:
+    """Format a gap/difference object from classification responses."""
+    if not isinstance(gap, dict):
+        return None
+    laps_behind = gap.get("lapsBehind")
+    time_diff = first_non_empty(gap.get("timeDifference"), gap.get("difference"))
+    if laps_behind not in (None, "", 0):
+        if time_diff and str(time_diff) not in ("00.000", "0", "00:00.000"):
+            return f"+{laps_behind} lap(s), {time_diff}"
+        return f"+{laps_behind} lap(s)"
+    if not time_diff:
+        return None
+    if str(time_diff) in ("00.000", "0", "00:00.000"):
+        return "Leader"
+    return f"+{time_diff}" if not str(time_diff).startswith("+") else str(time_diff)
+
+
+def safe_int(value: Any, default: int = 9999) -> int:
+    """Best-effort integer conversion for sorting."""
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def normalize_result_row(
+    row: Dict[str, Any],
+    available_comp_ids: Optional[set] = None,
+    available_start_numbers: Optional[set] = None,
+) -> Dict[str, Any]:
+    """Normalize result row keys across payload variants for template rendering."""
+    competitor = row.get("competitor") if isinstance(row.get("competitor"), dict) else {}
+    driver = row.get("driver") if isinstance(row.get("driver"), dict) else {}
+    driver_name = first_non_empty(
+        row.get("name"),
+        row.get("driverName"),
+        competitor.get("name"),
+        driver.get("name"),
+        row.get("participantName"),
+    ) or "Unknown Competitor"
+
+    car_name = first_non_empty(
+        row.get("car"),
+        row.get("vehicle"),
+        row.get("marque"),
+        competitor.get("car"),
+    )
+    class_name = first_non_empty(
+        row.get("resultClass"),
+        row.get("vehicleClass"),
+        row.get("classification"),
+        row.get("class"),
+        competitor.get("class"),
+    )
+    if car_name and class_name:
+        car_class = f"{car_name} / {class_name}"
+    else:
+        car_class = car_name or class_name or "N/A"
+
+    total_time = first_non_empty(
+        row.get("totalTime"),
+        row.get("total_time"),
+        row.get("time"),
+        row.get("elapsedTime"),
+        row.get("finishTime"),
+    )
+    if not total_time:
+        total_time = format_gap_display(row.get("difference")) or format_gap_display(row.get("gap")) or "N/A"
+
+    best_lap = first_non_empty(
+        row.get("bestLapTime"),
+        row.get("best_lap_time"),
+        row.get("bestTime"),
+        row.get("lapTime"),
+    ) or "N/A"
+
+    laps = first_non_empty(
+        row.get("laps"),
+        row.get("lapCount"),
+        row.get("lap_count"),
+        row.get("completedLaps"),
+        row.get("numberOfLaps"),
+    )
+    laps_display = laps if laps is not None else "N/A"
+
+    position = first_non_empty(row.get("position"), row.get("pos"))
+    competitor_id = first_non_empty(row.get("competitorId"), row.get("id"), competitor.get("id"))
+    start_number = first_non_empty(row.get("startNumber"), row.get("transponder"))
+
+    lap_driver_id = None
+    action_label = None
+    comp_id_ok = competitor_id not in (None, "") and (
+        available_comp_ids is None or str(competitor_id) in available_comp_ids
+    )
+    start_no_ok = start_number not in (None, "") and (
+        available_start_numbers is None or str(start_number) in available_start_numbers
+    )
+
+    if comp_id_ok:
+        lap_driver_id = f"cid:{competitor_id}"
+        action_label = "View Laps"
+    elif start_no_ok:
+        lap_driver_id = f"sn:{start_number}"
+        action_label = "View Laps"
+    elif position not in (None, ""):
+        lap_driver_id = f"pos:{position}"
+        action_label = "View Position Trace"
+
+    return {
+        "position": position if position is not None else "N/A",
+        "position_sort": safe_int(position),
+        "driver_name": driver_name,
+        "car_class": car_class,
+        "total_time_display": total_time,
+        "best_lap_display": best_lap,
+        "laps_display": laps_display,
+        "lap_driver_id": lap_driver_id,
+        "action_label": action_label,
+    }

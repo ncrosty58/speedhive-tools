@@ -123,6 +123,15 @@ def _export_lap_records(args):
     return _run_module_as_main("speedhive.exporters.export_lap_records", argv)
 
 
+def _export_db_dump(args):
+    argv = ["--org", str(args.org), "--output-dir", str(args.output_dir)]
+    if args.db_path != default_db_path():
+        argv.extend(["--db-path", str(args.db_path)])
+    if args.max_events is not None:
+        argv.extend(["--max-events", str(args.max_events)])
+    return _run_module_as_main("speedhive.exporters.export_db_dump", argv)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Speedhive Tools")
     sub = parser.add_subparsers(dest="command")
@@ -189,6 +198,13 @@ def main():
     p.add_argument("--db-path", type=Path, default=default_db_path(), help="Primary SQLite cache path")
     p.add_argument("--output", "-o", default=None, help="Output NDJSON file path (default: stdout)")
     p.set_defaults(func=_export_lap_records)
+
+    p = sub.add_parser("export-db-dump", help="Export an offline NDJSON dump of an organization from the primary SQLite cache")
+    p.add_argument("--org", type=int, required=True, help="Organization ID")
+    p.add_argument("--output-dir", type=Path, required=True, help="Directory to save NDJSON files")
+    p.add_argument("--db-path", type=Path, default=default_db_path(), help="Primary SQLite cache path")
+    p.add_argument("--max-events", type=int, default=None, help="Maximum number of events to export")
+    p.set_defaults(func=_export_db_dump)
 
     register_discovered(sub)
 

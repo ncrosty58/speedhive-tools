@@ -692,3 +692,65 @@ class SpeedhiveStorage:
                 removed_sessions = len(stale_session_ids)
 
         return removed_events, removed_sessions
+
+    def get_org_status(self, org_id: int) -> Dict[str, Any]:
+        """Retrieve and compute cache status metrics & metadata for an organization."""
+        refresh_rec = self.get_refresh_state(org_id)
+        payload = refresh_rec.payload if isinstance(refresh_rec.payload, dict) else {}
+
+        def parse_iso(val: Any) -> Optional[datetime]:
+            if not val:
+                return None
+            try:
+                return datetime.fromisoformat(str(val).replace("Z", "+00:00")).astimezone(timezone.utc)
+            except Exception:
+                return None
+
+        full_dt = parse_iso(payload.get("last_full_refresh_at"))
+        incremental_dt = parse_iso(payload.get("last_incremental_refresh_at"))
+        explicit_last_dt = parse_iso(payload.get("last_refresh_at"))
+        last_dt = explicit_last_dt
+        if not last_dt:
+            candidates = [dt for dt in (full_dt, incremental_dt) if dt]
+            if candidates:
+                last_dt = max(candidates)
+
+        now = datetime.now(timezone.utc)
+        age = (now - last_dt).total_seconds() if last_dt else None
+        
+        last_refresh_at_str = last_dt.replace(microsecond=0).isoformat().replace("+00:00", "Z") if last_dt else None
+        last_full_refresh_at_str = full_dt.replace(microsecond=0).isoformat().replace("+00:00", "Z") if full_dt else None
+        last_incremental_refresh_at_str = incremental_dt.replace(microsecond=0).isoformat().replace("+00:00", "Z") if incremental_dt else None
+
+        events_cached = _safe_int(payload.get("events_cached")) or 0
+        sessions_cached = _safe_int(payload.get("sessions_cached")) or 0
+        championships_cached = _safe_int(payload.get("championships_cached")) or 0
+        new_events_detected = _safe_int(payload.get("new_events_detected")) or 0
+        refreshed_events = _safe_int(payload.get("refreshed_events")) or 0
+        refreshed_sessions = _safe_int(payload.get("refreshed_sessions")) or 0
+
+        # fallback checks
+        if not last_refresh_at_str:
+            # check from org_events table
+            events_rec = self.get_events(org_id)
+            if events_rec.saved_at:
+                saved_dt = parse_iso(events_rec.saved_at)
+                if saved_dt:
+                    last_refresh_at_str = events_rec.saved_at
+                    age = (now - saved_dt).total_seconds()
+
+        return {
+            "org_id": org_id,
+            "last_refresh_mode": _first_non_empty(payload.get("last_refresh_mode"), "full" if full_dt else None),
+            "last_refresh_at": last_refresh_at_str,
+            "last_full_refresh_at": last_full_refresh_at_str,
+            "last_incremental_refresh_at": last_incremental_refresh_at_str,
+            "age_seconds": age,
+            "age_hours": (age / 3600.0) if age is not None else None,
+            "events_cached": events_cached,
+            "sessions_cached": sessions_cached,
+            "championships_cached": championships_cached,
+            "new_events_detected": new_events_detected,
+            "refreshed_events": refreshed_events,
+            "refreshed_sessions": refreshed_sessions,
+        }

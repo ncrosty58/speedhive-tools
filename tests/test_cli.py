@@ -114,3 +114,28 @@ def test_export_lap_records_dispatches(mock_run):
         "speedhive.exporters.export_lap_records",
         ["--org", "30476", "--max-events", "10"],
     )
+
+
+@patch("speedhive.cli.main._run_module_as_main")
+def test_export_db_dump_dispatches(mock_run):
+    with patch(
+        "sys.argv",
+        [
+            "speedhive",
+            "export-db-dump",
+            "--org",
+            "30476",
+            "--output-dir",
+            "./my_dump",
+            "--max-events",
+            "5",
+        ],
+    ):
+        try:
+            main()
+        except SystemExit:
+            pass
+    mock_run.assert_called_once_with(
+        "speedhive.exporters.export_db_dump",
+        ["--org", "30476", "--output-dir", "my_dump", "--max-events", "5"],
+    )
