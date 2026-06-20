@@ -22,9 +22,8 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
-import sys
 from pathlib import Path
-from typing import Any, Iterable, List, Optional, Callable, Awaitable, Dict, Set, cast
+from typing import Any, List, Optional, Callable, Awaitable, cast
 import time
 import os
 import inspect

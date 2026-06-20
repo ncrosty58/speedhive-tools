@@ -38,8 +38,6 @@ def _report_consistency(args):
     argv = ["--org", str(args.org)]
     if args.db_path != default_db_path():
         argv.extend(["--db-path", str(args.db_path)])
-    if args.dump_dir != "./output":
-        argv.extend(["--dump-dir", str(args.dump_dir)])
     if args.out_dir != "./output":
         argv.extend(["--out-dir", str(args.out_dir)])
     if args.min_laps != 20:
@@ -61,8 +59,6 @@ def _extract_driver_laps(args):
         argv.extend(["--driver-keys", args.driver_keys])
     if args.db_path != default_db_path():
         argv.extend(["--db-path", str(args.db_path)])
-    if args.dump_dir != Path("./output"):
-        argv.extend(["--dump-dir", str(args.dump_dir)])
     if args.out_dir != Path("./output"):
         argv.extend(["--out-dir", str(args.out_dir)])
     if args.threshold != 0.8:
@@ -80,8 +76,6 @@ def _extract_track_records(args):
         argv.extend(["--classification", args.classification])
     if args.db_path != default_db_path():
         argv.extend(["--db-path", str(args.db_path)])
-    if args.dump_dir != Path("./output"):
-        argv.extend(["--dump-dir", str(args.dump_dir)])
     if args.output:
         argv.extend(["--output", str(args.output)])
     return _run_module_as_main("speedhive.processing.process_track_records", argv)
@@ -148,7 +142,6 @@ def main():
     p = sub.add_parser("report-consistency", help="Report top/bottom consistency from the primary SQLite cache")
     p.add_argument("--org", type=int, required=True, help="Organization ID")
     p.add_argument("--db-path", type=Path, default=default_db_path(), help="Primary SQLite cache path")
-    p.add_argument("--dump-dir", default="./output", help="Legacy offline dump root used only when the DB has no org data")
     p.add_argument("--out-dir", default="./output", help="Output directory for generated reports")
     p.add_argument("--min-laps", type=int, default=20)
     p.add_argument("--top", type=int, default=10)
@@ -162,7 +155,6 @@ def main():
     p.add_argument("--driver", required=True, help="Driver name to fuzzy match")
     p.add_argument("--driver-keys", default=None)
     p.add_argument("--db-path", type=Path, default=default_db_path(), help="Primary SQLite cache path")
-    p.add_argument("--dump-dir", type=Path, default=Path("./output"), help="Legacy offline dump root used only when the DB has no org data")
     p.add_argument("--out-dir", type=Path, default=Path("./output"), help="Output directory for generated reports")
     p.add_argument("--threshold", type=float, default=0.8)
     p.add_argument("--min-laps", type=int, default=1)
@@ -173,7 +165,6 @@ def main():
     p.add_argument("--org", type=int, required=True, help="Organization ID")
     p.add_argument("--classification", default=None)
     p.add_argument("--db-path", type=Path, default=default_db_path(), help="Primary SQLite cache path")
-    p.add_argument("--dump-dir", type=Path, default=Path("./output"), help="Legacy offline dump root used only when the DB has no org data")
     p.add_argument("--output", default=None, help="Output file path (JSON)")
     p.set_defaults(func=_extract_track_records)
 

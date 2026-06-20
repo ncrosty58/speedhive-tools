@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import re
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
@@ -12,10 +13,8 @@ from statistics import mean, median, stdev
 from typing import Any, Dict, List
 
 from speedhive.processing.process_lap_analysis import (
-    compute_laps_and_enriched,
     compute_laps_and_enriched_from_storage,
     extract_iso_date,
-    load_session_map,
     normalize_name,
 )
 from speedhive.analyzers.analyze_consistency import load_session_types_from_storage
@@ -105,27 +104,25 @@ def main(argv=None) -> int:
         default=None,
         help="Comma-separated driver_key values to extract (skips fuzzy matching)",
     )
-    parser.add_argument("--dump-dir", type=Path, default=Path("output"), help="Legacy offline dump root used only when the DB has no org data")
     parser.add_argument("--db-path", type=Path, default=default_db_path())
     parser.add_argument("--out-dir", type=Path, default=Path("output"))
-    parser.add_argument("--threshold", type=float, default=0.85)
-    parser.add_argument("--min-laps", type=int, default=0)
+    parser.add_argument("--threshold", type=float, default=0.8)
+    parser.add_argument("--min-laps", type=int, default=1)
     parser.add_argument("--ignore-outliers", action="store_true", help="Ignore outlier lap times using IQR method")
     args = parser.parse_args(argv)
 
-    if args.db_path.exists():
-        from speedhive.storage import SpeedhiveStorage
+    if not args.db_path.exists():
+        print(f"Error: Database file does not exist at '{args.db_path}'. Please sync or import first.", file=sys.stderr)
+        return 1
 
-        storage = SpeedhiveStorage(args.db_path)
-        if storage.org_has_sessions(args.org):
-            laps_map, enriched = compute_laps_and_enriched_from_storage(storage, args.org, ignore_outliers=args.ignore_outliers)
-            session_map = load_session_types_from_storage(storage, args.org)
-        else:
-            laps_map, enriched = compute_laps_and_enriched(args.dump_dir, args.org, ignore_outliers=args.ignore_outliers)
-            session_map = load_session_map(args.dump_dir, args.org)
-    else:
-        laps_map, enriched = compute_laps_and_enriched(args.dump_dir, args.org, ignore_outliers=args.ignore_outliers)
-        session_map = load_session_map(args.dump_dir, args.org)
+    from speedhive.storage import SpeedhiveStorage
+    storage = SpeedhiveStorage(args.db_path)
+    if not storage.org_has_sessions(args.org):
+        print(f"Error: Organization #{args.org} has no sessions in the database. Please sync or import first.", file=sys.stderr)
+        return 1
+
+    laps_map, enriched = compute_laps_and_enriched_from_storage(storage, args.org, ignore_outliers=args.ignore_outliers)
+    session_map = load_session_types_from_storage(storage, args.org)
 
     index = None
     index_path = args.out_dir / f"laps_index_{args.org}.json"

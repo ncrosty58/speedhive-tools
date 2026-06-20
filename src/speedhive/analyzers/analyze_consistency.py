@@ -5,17 +5,16 @@ import argparse
 import difflib
 import math
 import os
+import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Any
 
 from speedhive.processing.process_lap_analysis import (
-    compute_laps_and_enriched,
     compute_laps_and_enriched_from_storage,
     normalize_name,
     format_seconds,
 )
-from speedhive.processing.ndjson import open_ndjson
 
 if TYPE_CHECKING:
     from speedhive.storage import SpeedhiveStorage
@@ -25,21 +24,7 @@ def default_db_path() -> Path:
     return Path(os.environ.get("SPEEDHIVE_DB_PATH", "./web_data/speedhive.db"))
 
 
-def load_session_types(dump_dir: Path, org: int) -> Dict[str, Dict]:
-    """Return mapping of session id -> raw session payload."""
-    dump = dump_dir / str(org)
-    path = dump / "sessions.ndjson.gz"
-    if not path.exists():
-        path = dump / "sessions.ndjson"
-    mapping: Dict[str, Dict] = {}
-    if not path.exists():
-        return mapping
-    for obj in open_ndjson(path):
-        sid = obj.get("session_id") or obj.get("sessionId") or (obj.get("raw") or {}).get("id")
-        if sid is None:
-            continue
-        mapping[str(int(sid))] = obj.get("raw") or obj
-    return mapping
+
 
 
 def load_session_types_from_storage(storage: "SpeedhiveStorage", org: int) -> Dict[str, Dict]:
@@ -355,7 +340,6 @@ def find_driver_percentile(
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Report top/bottom consistency from the primary SQLite cache")
     parser.add_argument("--org", type=int, required=True)
-    parser.add_argument("--dump-dir", type=Path, default=Path("output"), help="Legacy offline dump root used only when the DB has no org data")
     parser.add_argument("--db-path", type=Path, default=default_db_path())
     parser.add_argument("--out-dir", type=Path, default=Path("output"))
     parser.add_argument("--min-laps", type=int, default=20)
@@ -365,19 +349,18 @@ def main(argv=None) -> int:
     parser.add_argument("--ignore-outliers", action="store_true", help="Ignore outlier lap times using IQR method")
     args = parser.parse_args(argv)
 
-    if args.db_path.exists():
-        from speedhive.storage import SpeedhiveStorage
+    if not args.db_path.exists():
+        print(f"Error: Database file does not exist at '{args.db_path}'. Please sync or import first.", file=sys.stderr)
+        return 1
 
-        storage = SpeedhiveStorage(args.db_path)
-        if storage.org_has_sessions(args.org):
-            _, enriched = compute_laps_and_enriched_from_storage(storage, args.org, ignore_outliers=args.ignore_outliers)
-            session_map = load_session_types_from_storage(storage, args.org)
-        else:
-            _, enriched = compute_laps_and_enriched(args.dump_dir, args.org, ignore_outliers=args.ignore_outliers)
-            session_map = load_session_types(args.dump_dir, args.org)
-    else:
-        _, enriched = compute_laps_and_enriched(args.dump_dir, args.org, ignore_outliers=args.ignore_outliers)
-        session_map = load_session_types(args.dump_dir, args.org)
+    from speedhive.storage import SpeedhiveStorage
+    storage = SpeedhiveStorage(args.db_path)
+    if not storage.org_has_sessions(args.org):
+        print(f"Error: Organization #{args.org} has no sessions in the database. Please sync or import first.", file=sys.stderr)
+        return 1
+
+    _, enriched = compute_laps_and_enriched_from_storage(storage, args.org, ignore_outliers=args.ignore_outliers)
+    session_map = load_session_types_from_storage(storage, args.org)
     by_name = aggregate_by_name(enriched, session_map)
     clustered = cluster_names(by_name, threshold=args.threshold)
     print_top_bottom(clustered, top_n=args.top, min_laps=args.min_laps)

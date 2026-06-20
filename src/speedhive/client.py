@@ -5,7 +5,7 @@ from __future__ import annotations
 import ssl
 import time
 import asyncio
-from typing import Any, Optional
+from typing import Optional
 
 import httpx
 from attrs import define, field, evolve

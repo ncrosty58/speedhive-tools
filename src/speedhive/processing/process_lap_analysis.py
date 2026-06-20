@@ -4,13 +4,12 @@
 from __future__ import annotations
 
 from difflib import SequenceMatcher
-import json
 import re
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 import statistics
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from speedhive.processing.ndjson import open_ndjson
 

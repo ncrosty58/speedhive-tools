@@ -20,24 +20,17 @@ pip install -e .
 ## Quick CLI Usage
 
 ```bash
-# Run analysis directly from the primary SQLite cache
-speedhive report-consistency --org 30476 --db-path ./web_data/speedhive.db --top 10
-speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname" --db-path ./web_data/speedhive.db
-speedhive extract-track-records --org 30476 --db-path ./web_data/speedhive.db
+# Sync organization data into the primary SQLite cache (default database is ./web_data/speedhive.db)
+speedhive sync-org --org 30476
 
-# Export a raw offline NDJSON dump
+# Run analysis directly from the SQLite cache
+speedhive report-consistency --org 30476 --top 10
+speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
+speedhive extract-track-records --org 30476
+
+# Offline utility commands (exporting raw dumps, then importing into cache)
 speedhive export-dump --org 30476 --output ./output
-
-# Import raw offline NDJSON dumps into the primary SQLite cache
-speedhive import-dump --org 30476 --dump-dir ./output --db-path ./web_data/speedhive.db
-
-# Legacy offline dump analysis still works as a fallback when no primary DB is available
-speedhive report-consistency --org 30476 --dump-dir ./output
-speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname" --dump-dir ./output
-speedhive extract-track-records --org 30476 --dump-dir ./output
-
-# Sync organization data into the primary SQLite cache
-speedhive sync-org --org 30476 --db-path ./web_data/speedhive.db --mode incremental --recent-backfill-events 3
+speedhive import-dump --org 30476 --dump-dir ./output
 ```
 
 Run `speedhive --help` for the full command list.
@@ -51,37 +44,34 @@ client = SpeedhiveClient.create(token="your-api-token")
 events = client.get_events(org_id=30476, limit=5)
 ```
 
-## Preferred Workflow
+## Standard CLI Workflow
 
-1) **Sync data into the primary SQLite cache**:
-   Use the web app sync flow or your own pipeline to populate `./web_data/speedhive.db`.
+All analysis commands query the central SQLite cache (`./web_data/speedhive.db` by default). There are two standard ways to populate this cache:
 
-2) **Run analysis against the primary cache**:
-   ```bash
-   speedhive report-consistency --org 30476 --db-path ./web_data/speedhive.db
-   speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname" --db-path ./web_data/speedhive.db
-   speedhive extract-track-records --org 30476 --db-path ./web_data/speedhive.db
-   ```
+### Option A: Direct Sync (Recommended)
+Query the remote Mylaps Speedhive API directly to populate the cache:
+```bash
+speedhive sync-org --org 30476
+```
 
-## Offline Workflow
-
-1) **Export a raw data dump**:
-   Downloads events, sessions, results, laps, and announcements to local NDJSON files.
+### Option B: Offline Export / Import Ingest
+If you want to migrate data or run analysis offline:
+1) **Export raw data dump**:
    ```bash
    speedhive export-dump --org 30476 --output ./output
    ```
-
-2) **Import raw dumps into the primary SQLite cache**:
-   Imports all NDJSON files under `./output/30476/` into your main cache database.
+2) **Import raw dumps into the SQLite cache**:
    ```bash
-   speedhive import-dump --org 30476 --dump-dir ./output --db-path ./web_data/speedhive.db
+   speedhive import-dump --org 30476 --dump-dir ./output
    ```
 
-3) **Run offline analysis against the database**:
-   ```bash
-   speedhive report-consistency --org 30476 --dump-dir ./output
-   speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname" --dump-dir ./output
-   ```
+### Running Analysis
+Once data is in the SQLite cache, run reports against the database:
+```bash
+speedhive report-consistency --org 30476
+speedhive extract-driver-laps --org 30476 --driver "Firstname/Lastname"
+speedhive extract-track-records --org 30476
+```
 
 ## Output Format
 

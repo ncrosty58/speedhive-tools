@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,79 +83,19 @@ def extract_records_from_storage(org: int, db_path: Path, classification: str | 
     return records
 
 
-def extract_records(org: int, dump_dir: Path, classification: str | None = None) -> List[Dict[str, Any]]:
-    """Return parsed track record rows from local SQLite database, auto-ingesting if missing."""
-    db_path = dump_dir / str(org) / f"laps_{org}.db"
-    if not db_path.exists():
-        # Run the sqlite ingestion first to build the database
-        from speedhive.processing.process_sqlite_import import main as sqlite_main
-        sqlite_main(["--org", str(org), "--dump-dir", str(dump_dir)])
-
-    # If it still doesn't exist (e.g. no dump files), return empty list
-    if not db_path.exists():
-        return []
-
-    conn = sqlite3.connect(db_path)
-    try:
-        cur = conn.cursor()
-        # Check if track_records table exists
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='track_records'")
-        if not cur.fetchone():
-            # Try running ingestion to create the table
-            from speedhive.processing.process_sqlite_import import main as sqlite_main
-            sqlite_main(["--org", str(org), "--dump-dir", str(dump_dir)])
-            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='track_records'")
-            if not cur.fetchone():
-                return []
-
-        query = """
-            SELECT event_id, event_name, session_id, session_name, classification,
-                   lap_time, lap_time_seconds, driver, marque, timestamp, text
-            FROM track_records
-        """
-        params = []
-        if classification:
-            query += " WHERE UPPER(classification) = ?"
-            params.append(classification.upper())
-
-        query += " ORDER BY UPPER(classification) ASC, lap_time_seconds ASC"
-        cur.execute(query, params)
-
-        records = []
-        for row in cur.fetchall():
-            records.append({
-                "event_id": row[0],
-                "event_name": row[1],
-                "session_id": row[2],
-                "session_name": row[3],
-                "classification": row[4],
-                "lap_time": row[5],
-                "lap_time_seconds": row[6],
-                "driver": row[7],
-                "marque": row[8],
-                "timestamp": row[9],
-                "text": row[10],
-            })
-        return records
-    finally:
-        conn.close()
-
-
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Extract track records from the primary SQLite cache to JSON")
     parser.add_argument("--org", type=int, required=True)
     parser.add_argument("--classification", default=None)
-    parser.add_argument("--dump-dir", type=Path, default=Path("./output"), help="Legacy offline dump root used only when the DB has no org data")
     parser.add_argument("--db-path", type=Path, default=default_db_path())
     parser.add_argument("--output", default=None, help="Output file path (JSON)")
     args = parser.parse_args(argv)
 
-    if args.db_path.exists():
-        records = extract_records_from_storage(args.org, args.db_path, args.classification)
-        if not records:
-            records = extract_records(args.org, args.dump_dir, args.classification)
-    else:
-        records = extract_records(args.org, args.dump_dir, args.classification)
+    if not args.db_path.exists():
+        print(f"Error: Database file does not exist at '{args.db_path}'. Please sync or import first.", file=sys.stderr)
+        return 1
+
+    records = extract_records_from_storage(args.org, args.db_path, args.classification)
 
     payload = {
         "org_id": args.org,
