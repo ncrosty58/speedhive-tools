@@ -27,6 +27,8 @@ speedhive sync-org --org 30476
 speedhive report-consistency --org 30476 --top 10
 speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
 speedhive extract-track-records --org 30476
+speedhive scan-track-records --org 30476
+speedhive refresh-track-records --org 30476
 
 # Offline utility commands (exporting raw dumps, then importing into cache)
 speedhive export-dump --org 30476 --output ./output
@@ -71,6 +73,8 @@ Once data is in the SQLite cache, run reports against the database:
 speedhive report-consistency --org 30476
 speedhive extract-driver-laps --org 30476 --driver "Firstname/Lastname"
 speedhive extract-track-records --org 30476
+speedhive scan-track-records --org 30476
+speedhive refresh-track-records --org 30476
 ```
 
 ## Output Format
@@ -98,6 +102,12 @@ as well. `extract-track-records` writes a `{"_meta": {...}}` first line
 (org id, classification filter, generated-at timestamp) followed by one record
 per line.
 
+Track-record curation lives in `speedhive.curation`:
+
+- `run_sync_and_diff(...)` assumes the SQLite cache is already populated and only performs extract/normalize/diff against curated and rejected records.
+- `refresh_and_scan(...)` is the orchestration helper used by the UI and CLI when they want to refresh the org cache first and then run the curation scan.
+- `load_curated(...)`, `save_curated(...)`, `load_candidates(...)`, `save_candidates(...)`, `load_rejected(...)`, and `save_rejected(...)` all use the shared NDJSON storage helpers.
+
 ## Project Structure
 
 Canonical implementation lives in `src/speedhive/`:
@@ -122,6 +132,7 @@ src/speedhive/
     ├── process_track_records.py
     ├── process_lap_analysis.py
     └── ndjson.py
+└── curation.py           # Track-record curation and review-state orchestration
 ```
 
 ## Notes
