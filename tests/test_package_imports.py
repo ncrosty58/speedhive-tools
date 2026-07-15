@@ -9,7 +9,6 @@ def test_package_and_submodules_importable():
         "speedhive.cli.main",
         "speedhive.exporters.export_full_dump",
         "speedhive.exporters.export_curated_track_records",
-        "speedhive.exporters.export_track_records_history",
         "speedhive.analyzers.analyze_driver_laps",
         "speedhive.processing.process_lap_analysis",
         "speedhive.processing.track_records_store",

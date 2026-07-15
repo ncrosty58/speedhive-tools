@@ -136,7 +136,6 @@ src/speedhive/
     ├── exporters/           # External file exporters and dump writers
     │   ├── export_track_records.py
     │   ├── export_curated_track_records.py
-    │   ├── export_track_records_history.py
     │   ├── export_full_dump.py
     │   └── ...
 ├── analyzers/           # Performance and lap analysis
