@@ -22,6 +22,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from speedhive.exporters.export_org_cache import refresh_org_cache
 from speedhive.ndjson import load_ndjson, save_ndjson
 from speedhive.processing.process_track_records import extract_records_from_storage
 from speedhive.storage import SpeedhiveStorage
@@ -411,4 +412,54 @@ def run_sync_and_diff(org_id, db_path, track_records_root, progress_cb=None):
         "new_record_candidates": new_count,
         "unmapped_candidates": unmapped_count,
         "generated_at": payload["generated_at"],
+    }
+
+
+def refresh_and_scan(
+    org_id,
+    client,
+    db_path,
+    track_records_root,
+    *,
+    mode: str = "incremental",
+    force: bool = False,
+    max_events=None,
+    recent_backfill_events: int = 20,
+    cleanup_on_full: bool = True,
+    progress_cb=None,
+):
+    """Refresh the org cache if needed, then run the track-record scan.
+
+    This is the single orchestration entrypoint used by the UI and CLI when
+    they want the full update flow instead of only diffing an already-synced
+    cache.
+    """
+    def report(phase):
+        if progress_cb:
+            progress_cb(phase)
+
+    status = get_cache_status(org_id, db_path, track_records_root, client=client)
+    refresh_result = None
+    if force or status["needs_sync"]:
+        report("Refreshing Speedhive cache")
+        refresh_result = refresh_org_cache(
+            client=client,
+            org_id=org_id,
+            mode=mode,
+            max_events=max_events,
+            recent_backfill_events=recent_backfill_events if mode != "full" else 0,
+            cleanup_on_full=cleanup_on_full,
+            db_path=db_path,
+        )
+    else:
+        age_str = f"{status['age_hours']:.1f}h" if status.get("age_hours") is not None else "unknown age"
+        report(f"Speedhive cache is fresh ({age_str} old), skipping refresh")
+
+    report("Scanning cached Speedhive data for track records")
+    scan_result = run_sync_and_diff(org_id, db_path, track_records_root, progress_cb=progress_cb)
+    return {
+        "status": status,
+        "refresh": refresh_result,
+        "scan": scan_result,
+        "refresh_ran": refresh_result is not None,
     }

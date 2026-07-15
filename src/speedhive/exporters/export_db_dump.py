@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from speedhive.ndjson import write_ndjson_record
 from speedhive.storage import SpeedhiveStorage
 
 
@@ -22,11 +23,6 @@ def _utc_now() -> datetime:
 
 def _iso_utc(dt: datetime) -> str:
     return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def write_ndjson_line(handle, payload: Dict[str, Any]) -> None:
-    handle.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
-
 
 def export_db_dump(
     storage: SpeedhiveStorage,
@@ -65,7 +61,7 @@ def export_db_dump(
                 continue
             event_name = event.get("name")
             base_event = {"org_id": org_id, "event_id": event_id, "event_name": event_name}
-            write_ndjson_line(events_fh, {**base_event, "raw": event})
+            write_ndjson_record(events_fh, {**base_event, "raw": event})
             events_count += 1
 
             sessions_rec = storage.get_event_sessions(int(event_id))
@@ -77,20 +73,20 @@ def export_db_dump(
                 if not session_id:
                     continue
                 session_id_int = int(session_id)
-                write_ndjson_line(sessions_fh, {**base_event, "session_id": session_id_int, "raw": session})
+                write_ndjson_record(sessions_fh, {**base_event, "session_id": session_id_int, "raw": session})
                 sessions_count += 1
 
                 anns_rec = storage.get_announcements(session_id_int)
                 announcements = anns_rec.payload if isinstance(anns_rec.payload, list) else []
-                write_ndjson_line(anns_fh, {**base_event, "session_id": session_id_int, "announcements": announcements})
+                write_ndjson_record(anns_fh, {**base_event, "session_id": session_id_int, "announcements": announcements})
 
                 results_rec = storage.get_results(session_id_int)
                 results = results_rec.payload if isinstance(results_rec.payload, list) else []
-                write_ndjson_line(results_fh, {**base_event, "session_id": session_id_int, "results": results})
+                write_ndjson_record(results_fh, {**base_event, "session_id": session_id_int, "results": results})
 
                 laps_rec = storage.get_laps(session_id_int)
                 laps = laps_rec.payload if isinstance(laps_rec.payload, list) else []
-                write_ndjson_line(laps_fh, {**base_event, "session_id": session_id_int, "rows_count": len(laps), "rows": laps})
+                write_ndjson_record(laps_fh, {**base_event, "session_id": session_id_int, "rows_count": len(laps), "rows": laps})
                 laps_records_count += 1
 
     manifest = {

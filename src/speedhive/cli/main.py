@@ -2,11 +2,13 @@
 """Speedhive Tools CLI – unified entry point."""
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
 
 from speedhive.cli.discovery import register_discovered
+from speedhive.wrapper import SpeedhiveClient
 
 
 def default_db_path() -> Path:
@@ -79,6 +81,33 @@ def _extract_track_records(args):
     if args.output:
         argv.extend(["--output", str(args.output)])
     return _run_module_as_main("speedhive.processing.process_track_records", argv)
+
+
+def _scan_track_records(args):
+    from speedhive import curation as track_records
+
+    result = track_records.run_sync_and_diff(args.org, args.db_path, args.track_records_root)
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+def _refresh_track_records(args):
+    from speedhive import curation as track_records
+
+    client = SpeedhiveClient.create()
+    outcome = track_records.refresh_and_scan(
+        args.org,
+        client,
+        args.db_path,
+        args.track_records_root,
+        mode=args.mode,
+        force=args.force,
+        max_events=args.max_events,
+        recent_backfill_events=args.recent_backfill_events,
+        cleanup_on_full=not args.no_cleanup_on_full,
+    )
+    print(json.dumps(outcome, indent=2, sort_keys=True))
+    return 0
 
 
 def _build_sync_argv(args) -> list[str]:
@@ -167,6 +196,23 @@ def main():
     p.add_argument("--db-path", type=Path, default=default_db_path(), help="Primary SQLite cache path")
     p.add_argument("--output", default=None, help="Output file path (NDJSON)")
     p.set_defaults(func=_extract_track_records)
+
+    p = sub.add_parser("scan-track-records", help="Diff track records against the curated store without refreshing the org cache")
+    p.add_argument("--org", type=int, required=True, help="Organization ID")
+    p.add_argument("--db-path", type=Path, default=default_db_path(), help="Primary SQLite cache path")
+    p.add_argument("--track-records-root", type=Path, default=Path("./web_data/track_records"), help="Track-records storage root")
+    p.set_defaults(func=_scan_track_records)
+
+    p = sub.add_parser("refresh-track-records", help="Refresh the org cache if needed, then scan track records")
+    p.add_argument("--org", type=int, required=True, help="Organization ID")
+    p.add_argument("--db-path", type=Path, default=default_db_path(), help="Primary SQLite cache path")
+    p.add_argument("--track-records-root", type=Path, default=Path("./web_data/track_records"), help="Track-records storage root")
+    p.add_argument("--mode", choices=["full", "incremental"], default="incremental")
+    p.add_argument("--force", action="store_true", help="Refresh and scan even if the cache appears fresh")
+    p.add_argument("--max-events", type=int, default=None, help="Maximum number of events to refresh")
+    p.add_argument("--recent-backfill-events", type=int, default=20, help="Number of recent events to backfill in incremental mode")
+    p.add_argument("--no-cleanup-on-full", action="store_true", help="Skip pruning removed events after a full refresh")
+    p.set_defaults(func=_refresh_track_records)
 
     p = sub.add_parser("sync-org", help="Sync org data into the primary SQLite cache")
     p.add_argument("--org", type=int, required=True, help="Organization ID")

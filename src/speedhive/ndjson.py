@@ -12,13 +12,18 @@ from typing import Any, Dict, Iterator, List, Optional
 META_KEY = "_meta"
 
 
+def dumps_ndjson_record(payload: Any) -> str:
+    """Serialize one NDJSON row safely."""
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+
 def iter_ndjson_lines(doc: Dict[str, Any], records_key: str) -> Iterator[str]:
     """Yield NDJSON lines (without trailing newlines) for a document."""
     meta = {k: v for k, v in doc.items() if k != records_key}
     if meta:
-        yield json.dumps({META_KEY: meta}, ensure_ascii=False)
+        yield dumps_ndjson_record({META_KEY: meta})
     for row in doc.get(records_key) or []:
-        yield json.dumps(row, ensure_ascii=False)
+        yield dumps_ndjson_record(row)
 
 
 def dumps_ndjson(doc: Dict[str, Any], records_key: str) -> str:
@@ -32,6 +37,10 @@ def save_ndjson(path, doc: Dict[str, Any], records_key: str) -> None:
     with open(path, "w") as f:
         for line in iter_ndjson_lines(doc, records_key):
             f.write(line + "\n")
+
+
+def write_ndjson_record(handle, payload: Any) -> None:
+    handle.write(dumps_ndjson_record(payload) + "\n")
 
 
 def parse_ndjson_lines(lines, records_key: str) -> Dict[str, Any]:

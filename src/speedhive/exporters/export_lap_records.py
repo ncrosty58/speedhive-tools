@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
+from speedhive.ndjson import write_ndjson_record
 from speedhive.storage import SpeedhiveStorage
 
 
@@ -67,11 +67,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with open(out_path, "w", encoding="utf-8") as f:
             for record in get_lap_records(storage, args.org, args.max_events):
-                f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+                write_ndjson_record(f, record)
         print(f"Wrote lap records to {out_path}", file=sys.stderr)
     else:
         for record in get_lap_records(storage, args.org, args.max_events):
-            print(json.dumps(record, ensure_ascii=False, default=str))
+            write_ndjson_record(sys.stdout, record)
 
     return 0
 
