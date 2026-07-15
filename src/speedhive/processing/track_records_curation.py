@@ -22,6 +22,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from speedhive.exporters.export_track_records_history import save_candidates_history_ndjson
 from speedhive.processing.refresh_org_cache import refresh_org_cache
 from speedhive.processing.track_records import extract_records_from_storage
 from speedhive.processing.track_records_store import (
@@ -346,7 +347,7 @@ def run_sync_and_diff(org_id, db_path, track_records_root, progress_cb=None):
     save_candidates(p, payload)
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    save_ndjson(p["history"] / f"candidates_{stamp}.ndjson", payload, "candidates")
+    save_candidates_history_ndjson(p["history"] / f"candidates_{stamp}.ndjson", payload)
 
     new_count = sum(1 for c in candidates if c["action"] == "new_record")
     unmapped_count = sum(1 for c in candidates if c["action"] == "unmapped_classification")

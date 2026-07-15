@@ -110,7 +110,8 @@ as well. `export-track-records` writes a `{"_meta": {...}}` first line
 (org id, classification filter, generated-at timestamp) followed by one record
 per line.
 
-Curated track-record workflow files live in `speedhive.processing.track_records_files`
+Curated track-record export helpers live in `speedhive.exporters.export_curated_track_records`,
+import/validation helpers live in `speedhive.processing.track_records_import`,
 and the review/update pipeline lives in `speedhive.processing.track_records_curation`:
 
 - `export_curated_track_records_ndjson(...)` exports the per-org curated file as NDJSON.
@@ -132,10 +133,12 @@ src/speedhive/
 ├── cli/                 # CLI entry point and dynamic discovery
 │   ├── discovery.py
 │   └── main.py
-├── exporters/           # External file exporters and dump writers
-│   ├── export_track_records.py
-│   ├── export_full_dump.py
-│   └── ...
+    ├── exporters/           # External file exporters and dump writers
+    │   ├── export_track_records.py
+    │   ├── export_curated_track_records.py
+    │   ├── export_track_records_history.py
+    │   ├── export_full_dump.py
+    │   └── ...
 ├── analyzers/           # Performance and lap analysis
 │   ├── analyze_consistency.py
 │   └── analyze_driver_laps.py
@@ -144,8 +147,8 @@ src/speedhive/
     ├── process_sqlite_import.py
     ├── track_records.py
     ├── process_lap_analysis.py
+    ├── track_records_import.py     # Curated track-record import/validation helpers
     ├── track_records_store.py      # Shared track-record workflow file I/O
-    ├── track_records_files.py      # Curated track-record import/export helpers
     └── track_records_curation.py   # Track-record curation and review-state orchestration
 ```
 

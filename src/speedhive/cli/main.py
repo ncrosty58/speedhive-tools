@@ -8,10 +8,8 @@ import sys
 from pathlib import Path
 
 from speedhive.cli.discovery import register_discovered
-from speedhive.processing.track_records_files import (
-    export_curated_track_records_ndjson,
-    import_curated_track_records_ndjson,
-)
+from speedhive.exporters.export_curated_track_records import export_curated_track_records_ndjson
+from speedhive.processing.track_records_import import import_curated_track_records_ndjson
 from speedhive.wrapper import SpeedhiveClient
 
 

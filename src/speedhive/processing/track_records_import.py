@@ -1,4 +1,4 @@
-"""Curated track-record file import/export helpers shared by UI and CLI."""
+"""Import curated track-record NDJSON into workflow storage."""
 from __future__ import annotations
 
 import json
@@ -7,20 +7,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from speedhive.ndjson import iter_ndjson_lines
 from speedhive.processing.track_records_curation import lap_time_to_seconds
 from speedhive.processing.track_records_store import load_curated, paths_for_org, save_curated
 
 
 _TRACK_RECORD_REQUIRED_FIELDS = ("classAbbreviation", "lapTime", "driverName", "date")
 _TRACK_RECORD_OPTIONAL_FIELDS = ("marque", "addedAt")
-
-
-def export_curated_track_records_ndjson(org_id: int, track_records_root: Path) -> str:
-    p = paths_for_org(track_records_root, org_id)
-    curated = load_curated(p)
-    lines = list(iter_ndjson_lines({"records": curated.get("records", [])}, "records"))
-    return ("\n".join(lines) + "\n") if lines else ""
 
 
 def _validate_import_line(obj: Dict[str, Any], lineno: int) -> None:
