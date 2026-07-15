@@ -35,6 +35,16 @@ speedhive import-curated-track-records --org 30476 --input ./curated.ndjson
 
 Run `speedhive --help` for the full command list.
 
+## Getting Started
+
+The first step is to sync an organization into the local SQLite cache:
+
+```bash
+speedhive sync-org --org 30476
+```
+
+After that, the analysis commands and the friendly `SpeedhiveClient` wrapper can read from the local cache. If you later want to refresh the cache, run `sync-org` again.
+
 ## Python
 
 ```python
