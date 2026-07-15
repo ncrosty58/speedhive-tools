@@ -111,14 +111,14 @@ as well. `export-track-records` writes a `{"_meta": {...}}` first line
 per line.
 
 Curated track-record export helpers live in `speedhive.exporters.export_curated_track_records`,
-import/validation helpers live in `speedhive.processing.track_records_import`,
-and the review/update pipeline lives in `speedhive.processing.track_records_curation`:
+import/validation helpers live in `speedhive.workflows.track_records.import_curated`,
+and the review/update pipeline lives in `speedhive.workflows.track_records.curation`:
 
 - `export_curated_track_records_ndjson(...)` exports the per-org curated file as NDJSON.
 - `import_curated_track_records_ndjson(...)` validates and merges/replaces curated NDJSON into the per-org workflow store.
 - `run_sync_and_diff(...)` assumes the SQLite cache is already populated and only performs extract/normalize/diff against curated and rejected records.
 - `refresh_and_scan(...)` is the orchestration helper used by the UI and CLI when they want to refresh the org cache first and then run the curation scan.
-- `load_curated(...)`, `save_curated(...)`, `load_candidates(...)`, `save_candidates(...)`, `load_rejected(...)`, and `save_rejected(...)` all live in `speedhive.processing.track_records_store`.
+- `load_curated(...)`, `save_curated(...)`, `load_candidates(...)`, `save_candidates(...)`, `load_rejected(...)`, and `save_rejected(...)` all live in `speedhive.stores.track_records`.
 
 ## Project Structure
 
@@ -138,17 +138,20 @@ src/speedhive/
     │   ├── export_curated_track_records.py
     │   ├── export_full_dump.py
     │   └── ...
-├── analyzers/           # Performance and lap analysis
+├── analyzers/           # Read-only performance and lap analysis
 │   ├── analyze_consistency.py
 │   └── analyze_driver_laps.py
-└── processing/          # SQLite ETL and track record compilation
-    ├── refresh_org_cache.py
-    ├── process_sqlite_import.py
-    ├── track_records.py
-    ├── process_lap_analysis.py
-    ├── track_records_import.py     # Curated track-record import/validation helpers
-    ├── track_records_store.py      # Shared track-record workflow file I/O
-    └── track_records_curation.py   # Track-record curation and review-state orchestration
+├── analysis/            # Shared computation and parsing helpers
+│   └── lap_analysis.py
+├── workflows/           # Stateful ETL and track-record orchestration
+│   ├── refresh_org_cache.py
+│   ├── import_sqlite_dump.py
+│   └── track_records/
+│       ├── extract.py
+│       ├── curation.py
+│       └── import_curated.py
+└── stores/              # Track-record workflow persistence helpers
+    └── track_records.py
 ```
 
 ## Notes

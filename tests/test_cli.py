@@ -53,7 +53,7 @@ def test_sync_org_dispatches_without_legacy_cache_root(mock_run):
         except SystemExit:
             pass
     mock_run.assert_called_once_with(
-        "speedhive.processing.refresh_org_cache",
+        "speedhive.workflows.refresh_org_cache",
         [
             "--org",
             "30476",
@@ -75,7 +75,7 @@ def test_import_dump_dispatches(mock_run):
         except SystemExit:
             pass
     mock_run.assert_called_once_with(
-        "speedhive.processing.process_sqlite_import",
+        "speedhive.workflows.import_sqlite_dump",
         ["--org", "30476"],
     )
 

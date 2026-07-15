@@ -21,7 +21,7 @@ from speedhive.generated.api.session_controller import (
 )
 from speedhive.generated.api.championship_controller import get_championship
 from speedhive.generated.models.time import Time as TimeModel
-from speedhive.processing.process_lap_analysis import parse_track_record_text
+from speedhive.analysis.lap_analysis import parse_track_record_text
 
 
 

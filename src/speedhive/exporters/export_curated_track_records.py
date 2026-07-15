@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from speedhive.ndjson import dumps_ndjson
-from speedhive.processing.track_records_store import load_curated, paths_for_org
+from speedhive.stores.track_records import load_curated, paths_for_org
 
 
 def export_curated_track_records_ndjson(org_id: int, track_records_root: Path) -> str:

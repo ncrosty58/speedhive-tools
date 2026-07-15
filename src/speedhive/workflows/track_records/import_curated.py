@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from speedhive.processing.track_records_curation import lap_time_to_seconds
-from speedhive.processing.track_records_store import load_curated, paths_for_org, save_curated
+from speedhive.workflows.track_records.curation import lap_time_to_seconds
+from speedhive.stores.track_records import load_curated, paths_for_org, save_curated
 
 
 _TRACK_RECORD_REQUIRED_FIELDS = ("classAbbreviation", "lapTime", "driverName", "date")

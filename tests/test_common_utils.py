@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from speedhive.processing.process_lap_analysis import normalize_name, parse_time_value
+from speedhive.analysis.lap_analysis import normalize_name, parse_time_value
 from speedhive.ndjson import open_ndjson
 
 

@@ -1,7 +1,7 @@
 import json
 
-from speedhive.processing import track_records_curation as curation
-from speedhive.processing import track_records_store as store
+from speedhive.workflows.track_records import curation
+from speedhive.stores import track_records as store
 from speedhive.ndjson import dumps_ndjson, load_ndjson, parse_ndjson_lines, save_ndjson
 
 

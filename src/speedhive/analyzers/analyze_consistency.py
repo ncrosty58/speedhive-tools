@@ -10,7 +10,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Any
 
-from speedhive.processing.process_lap_analysis import (
+from speedhive.analysis.lap_analysis import (
     compute_laps_and_enriched_from_storage,
     normalize_name,
     format_seconds,

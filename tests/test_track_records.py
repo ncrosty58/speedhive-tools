@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from speedhive.processing.process_lap_analysis import parse_track_record_text
+from speedhive.analysis.lap_analysis import parse_track_record_text
 
 
 def test_extract_track_records_cli_outputs_ndjson(tmp_path, monkeypatch):

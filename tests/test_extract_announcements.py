@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from speedhive.processing.process_sqlite_import import ingest_announcements
+from speedhive.workflows.import_sqlite_dump import ingest_announcements
 
 
 def make_ndjson_gz(path: Path, lines: list):

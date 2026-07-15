@@ -1,4 +1,4 @@
-"""Auto‑discovery of exporter/processor/analyzer modules."""
+"""Auto-discovery of exporter/workflow/analyzer modules."""
 
 import importlib
 import pkgutil
@@ -7,7 +7,7 @@ MAPPING = {
     # Aliases: new module-derived names -> explicit CLI names (causes discovery to skip duplicates)
     "analyze-consistency": "report-consistency",
     "analyze-driver-laps": "extract-driver-laps",
-    "process-sqlite-import": "import-dump",
+    "import-sqlite-dump": "import-dump",
     "refresh-org-cache": "sync-org",
     "export-full-dump": "export-dump",
 }
@@ -16,7 +16,7 @@ def discover_modules():
     found = []
     for pkg_name, category in (
         ("speedhive.exporters", "exporters"),
-        ("speedhive.processing", "processing"),
+        ("speedhive.workflows", "workflows"),
         ("speedhive.analyzers", "analyzers"),
     ):
         try:

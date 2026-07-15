@@ -9,7 +9,7 @@ from pathlib import Path
 
 from speedhive.cli.discovery import register_discovered
 from speedhive.exporters.export_curated_track_records import export_curated_track_records_ndjson
-from speedhive.processing.track_records_import import import_curated_track_records_ndjson
+from speedhive.workflows.track_records.import_curated import import_curated_track_records_ndjson
 from speedhive.wrapper import SpeedhiveClient
 
 
@@ -116,7 +116,7 @@ def _import_curated_track_records(args):
 
 
 def _scan_track_records(args):
-    from speedhive.processing import track_records_curation as track_records
+    from speedhive.workflows.track_records import curation as track_records
 
     result = track_records.run_sync_and_diff(args.org, args.db_path, args.track_records_root)
     print(json.dumps(result, indent=2, sort_keys=True))
@@ -124,7 +124,7 @@ def _scan_track_records(args):
 
 
 def _refresh_track_records(args):
-    from speedhive.processing import track_records_curation as track_records
+    from speedhive.workflows.track_records import curation as track_records
 
     client = SpeedhiveClient.create()
     outcome = track_records.refresh_and_scan(
@@ -155,7 +155,7 @@ def _build_sync_argv(args) -> list[str]:
 
 def _sync_org(args):
     argv = _build_sync_argv(args)
-    return _run_module_as_main("speedhive.processing.refresh_org_cache", argv)
+    return _run_module_as_main("speedhive.workflows.refresh_org_cache", argv)
 
 
 def _import_dump(args):
@@ -164,7 +164,7 @@ def _import_dump(args):
         argv.extend(["--db-path", str(args.db_path)])
     if args.dump_dir != Path("./output"):
         argv.extend(["--dump-dir", str(args.dump_dir)])
-    return _run_module_as_main("speedhive.processing.process_sqlite_import", argv)
+    return _run_module_as_main("speedhive.workflows.import_sqlite_dump", argv)
 
 
 def _export_lap_records(args):

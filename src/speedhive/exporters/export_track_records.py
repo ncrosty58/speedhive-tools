@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from speedhive.ndjson import dumps_ndjson
-from speedhive.processing.track_records import extract_records_from_storage
+from speedhive.workflows.track_records.extract import extract_records_from_storage
 
 
 def default_db_path() -> Path:
