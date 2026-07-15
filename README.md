@@ -1,6 +1,6 @@
 # speedhive-tools
 
-CLI toolkit and Python library for the MyLaps Speedhive Event Results API.
+CLI toolkit and Python library for the MyLaps Speedhive API.
 
 ## Install
 
@@ -8,44 +8,34 @@ CLI toolkit and Python library for the MyLaps Speedhive Event Results API.
 pip install speedhive-tools
 ```
 
-## Related Projects
-
-- Web UI: `speedhive-tools-ui` at https://github.com/ncrosty58/speedhive-tools-ui
-
-For local development:
+## Develop
 
 ```bash
 git clone https://github.com/ncrosty58/speedhive-tools.git
 cd speedhive-tools
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 pip install -e .
 ```
 
-## Quick CLI Usage
+## Common Commands
 
 ```bash
-# Sync organization data into the primary SQLite cache (default database is ./web_data/speedhive.db)
 speedhive sync-org --org 30476
-
-# Run analysis directly from the SQLite cache
-speedhive report-consistency --org 30476 --top 10
+speedhive report-consistency --org 30476
 speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
 speedhive export-track-records --org 30476
 speedhive scan-track-records --org 30476
 speedhive refresh-track-records --org 30476
-
-# Offline utility commands (exporting raw dumps, then importing into cache)
 speedhive export-dump --org 30476 --output ./output
 speedhive import-dump --org 30476 --dump-dir ./output
-
-# Curated track-record workflow files
 speedhive export-curated-track-records --org 30476 --output ./curated.ndjson
 speedhive import-curated-track-records --org 30476 --input ./curated.ndjson
 ```
 
 Run `speedhive --help` for the full command list.
 
-## Python Usage
+## Python
 
 ```python
 from speedhive.wrapper import SpeedhiveClient
@@ -54,112 +44,20 @@ client = SpeedhiveClient.create(token="your-api-token")
 events = client.get_events(org_id=30476, limit=5)
 ```
 
-## Standard CLI Workflow
-
-All analysis commands query the central SQLite cache (`./web_data/speedhive.db` by default). There are two standard ways to populate this cache:
-
-### Option A: Direct Sync (Recommended)
-Query the remote Mylaps Speedhive API directly to populate the cache:
-```bash
-speedhive sync-org --org 30476
-```
-
-### Option B: Offline Export / Import Ingest
-If you want to migrate data or run analysis offline:
-1) **Export raw data dump**:
-   ```bash
-   speedhive export-dump --org 30476 --output ./output
-   ```
-2) **Import raw dumps into the SQLite cache**:
-   ```bash
-   speedhive import-dump --org 30476 --dump-dir ./output
-   ```
-
-### Running Analysis
-Once data is in the SQLite cache, run reports against the database:
-```bash
-speedhive report-consistency --org 30476
-speedhive extract-driver-laps --org 30476 --driver "Firstname/Lastname"
-speedhive export-track-records --org 30476
-speedhive scan-track-records --org 30476
-speedhive refresh-track-records --org 30476
-```
-
-## Output Format
-
-`export-dump` creates raw NDJSON snapshots in `output/<org_id>/`:
-
-```text
-output/30476/
-├── events.ndjson.gz
-├── sessions.ndjson.gz
-├── laps.ndjson.gz
-├── announcements.ndjson.gz
-├── results.ndjson.gz
-└── .checkpoint.json
-```
-
-`import-dump` imports those files into the primary cache database, for example:
-```text
-web_data/
-└── speedhive.db
-```
-
-`export-track-records`, `export-lap-records`, and `export-db-dump` emit NDJSON
-as well. `export-track-records` writes a `{"_meta": {...}}` first line
-(org id, classification filter, generated-at timestamp) followed by one record
-per line.
-
-Curated track-record export helpers live in `speedhive.exporters.export_curated_track_records`,
-import/validation helpers live in `speedhive.workflows.track_records.import_curated`,
-and the review/update pipeline lives in `speedhive.workflows.track_records.curation`:
-
-- `export_curated_track_records_ndjson(...)` exports the per-org curated file as NDJSON.
-- `import_curated_track_records_ndjson(...)` validates and merges/replaces curated NDJSON into the per-org workflow store.
-- `run_sync_and_diff(...)` assumes the SQLite cache is already populated and only performs extract/normalize/diff against curated and rejected records.
-- `refresh_and_scan(...)` is the orchestration helper used by the UI and CLI when they want to refresh the org cache first and then run the curation scan.
-- `load_curated(...)`, `save_curated(...)`, `load_candidates(...)`, `save_candidates(...)`, `load_rejected(...)`, and `save_rejected(...)` all live in `speedhive.stores.track_records`.
-
-## Project Structure
-
-Canonical implementation lives in `src/speedhive/`:
+## Package Layout
 
 ```text
 src/speedhive/
-├── client.py
-├── wrapper.py
-├── ndjson.py             # Shared NDJSON read/write helpers
-├── generated/           # Auto-generated API client bindings
-├── cli/                 # CLI entry point and dynamic discovery
-│   ├── discovery.py
-│   └── main.py
-    ├── exporters/           # External file exporters and dump writers
-    │   ├── export_track_records.py
-    │   ├── export_curated_track_records.py
-    │   ├── export_full_dump.py
-    │   └── ...
-├── analyzers/           # Read-only performance and lap analysis
-│   ├── analyze_consistency.py
-│   └── analyze_driver_laps.py
-├── analysis/            # Shared computation and parsing helpers
-│   └── lap_analysis.py
-├── workflows/           # Stateful ETL and track-record orchestration
-│   ├── refresh_org_cache.py
-│   ├── import_sqlite_dump.py
-│   └── track_records/
-│       ├── extract.py
-│       ├── curation.py
-│       └── import_curated.py
-└── stores/              # Track-record workflow persistence helpers
-    └── track_records.py
+├── analysis/      # Shared parsing and computation helpers
+├── analyzers/     # Read-only reports
+├── cli/           # CLI entry points
+├── exporters/     # NDJSON and file exporters
+├── stores/        # Workflow file persistence
+└── workflows/     # Sync, import, and track-record orchestration
 ```
 
 ## Notes
 
-- **SQLite Backend**: All CSV storage workflows have been deprecated. Relational querying is fully powered by a local, indexed SQLite database file.
-- Packaging is configured via `pyproject.toml` (PEP 621 + setuptools backend).
-- The generated API client uses `attrs`; no Pydantic dependency.
-
-## License
-
-MIT © Nathan Crosty
+- SQLite is the main local cache.
+- NDJSON is used for exports and curated track-record workflow files.
+- The UI repo uses this package as a submodule.
