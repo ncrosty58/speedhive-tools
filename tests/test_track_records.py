@@ -6,7 +6,7 @@ from speedhive.processing.process_lap_analysis import parse_track_record_text
 
 
 def test_extract_track_records_cli_outputs_ndjson(tmp_path, monkeypatch):
-    """extract-track-records emits NDJSON: a _meta line, then one record per line."""
+    """export-track-records emits NDJSON: a _meta line, then one record per line."""
     from speedhive.exporters import export_track_records as ptr
 
     db = tmp_path / "cache.db"

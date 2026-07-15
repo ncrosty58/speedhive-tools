@@ -90,6 +90,7 @@ def test_discovery_registers_builtin():
     assert "export-dump" in choices
     assert "sync-org" in choices
     assert "report-consistency" in choices
+    assert "export-track-records" in choices
 
 
 @patch("speedhive.cli.main._run_module_as_main")
@@ -138,3 +139,59 @@ def test_export_db_dump_dispatches(mock_run):
         "speedhive.exporters.export_db_dump",
         ["--org", "30476", "--output-dir", "my_dump", "--max-events", "5"],
     )
+
+
+def test_export_curated_track_records_writes_file(tmp_path):
+    from speedhive.cli.main import main
+
+    out = tmp_path / "curated.ndjson"
+    with patch(
+        "sys.argv",
+        [
+            "speedhive",
+            "export-curated-track-records",
+            "--org",
+            "30476",
+            "--track-records-root",
+            str(tmp_path / "track_records"),
+            "--output",
+            str(out),
+        ],
+    ):
+        try:
+            main()
+        except SystemExit:
+            pass
+
+    assert out.exists()
+
+
+def test_import_curated_track_records_creates_curated_file(tmp_path):
+    from speedhive.cli.main import main
+
+    track_records_root = tmp_path / "track_records"
+    src = tmp_path / "input.ndjson"
+    src.write_text(
+        '{"classAbbreviation":"FP","lapTime":"1:13.325","driverName":"Test","date":"2026-07-15"}\n',
+        encoding="utf-8",
+    )
+
+    with patch(
+        "sys.argv",
+        [
+            "speedhive",
+            "import-curated-track-records",
+            "--org",
+            "30476",
+            "--track-records-root",
+            str(track_records_root),
+            "--input",
+            str(src),
+        ],
+    ):
+        try:
+            main()
+        except SystemExit:
+            pass
+
+    assert (track_records_root / "30476" / "curated.ndjson").exists()

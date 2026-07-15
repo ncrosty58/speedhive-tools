@@ -10,6 +10,8 @@ def test_package_and_submodules_importable():
         "speedhive.exporters.export_full_dump",
         "speedhive.analyzers.analyze_driver_laps",
         "speedhive.processing.process_lap_analysis",
+        "speedhive.processing.track_records_store",
+        "speedhive.processing.track_records_files",
     ):
         m = importlib.import_module(mod)
         assert m is not None

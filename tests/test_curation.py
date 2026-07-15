@@ -1,6 +1,7 @@
 import json
 
 from speedhive.processing import track_records_curation as curation
+from speedhive.processing import track_records_store as store
 from speedhive.ndjson import dumps_ndjson, load_ndjson, parse_ndjson_lines, save_ndjson
 
 
@@ -58,6 +59,17 @@ def test_legacy_json_migrates_to_ndjson(tmp_path):
     again = curation.load_curated(p)
     assert again["date"] == "2026-07-15"
     assert again["records"] == loaded["records"]
+
+
+def test_track_record_store_helpers_round_trip(tmp_path):
+    p = store.paths_for_org(tmp_path, 999)
+    assert p["curated"].name == "curated.ndjson"
+    assert p["rejected"].name == "rejected.ndjson"
+
+    payload = {"enabled": True, "de_duplicate": False}
+    config_path = p["dir"] / "config.json"
+    store.save_json(config_path, payload)
+    assert store.load_json(config_path, {}) == payload
 
 
 def test_lap_time_to_seconds_is_strict():

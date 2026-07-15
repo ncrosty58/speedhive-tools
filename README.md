@@ -30,13 +30,17 @@ speedhive sync-org --org 30476
 # Run analysis directly from the SQLite cache
 speedhive report-consistency --org 30476 --top 10
 speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
-speedhive extract-track-records --org 30476
+speedhive export-track-records --org 30476
 speedhive scan-track-records --org 30476
 speedhive refresh-track-records --org 30476
 
 # Offline utility commands (exporting raw dumps, then importing into cache)
 speedhive export-dump --org 30476 --output ./output
 speedhive import-dump --org 30476 --dump-dir ./output
+
+# Curated track-record workflow files
+speedhive export-curated-track-records --org 30476 --output ./curated.ndjson
+speedhive import-curated-track-records --org 30476 --input ./curated.ndjson
 ```
 
 Run `speedhive --help` for the full command list.
@@ -76,7 +80,7 @@ Once data is in the SQLite cache, run reports against the database:
 ```bash
 speedhive report-consistency --org 30476
 speedhive extract-driver-laps --org 30476 --driver "Firstname/Lastname"
-speedhive extract-track-records --org 30476
+speedhive export-track-records --org 30476
 speedhive scan-track-records --org 30476
 speedhive refresh-track-records --org 30476
 ```
@@ -101,16 +105,19 @@ web_data/
 └── speedhive.db
 ```
 
-`extract-track-records`, `export-lap-records`, and `export-db-dump` emit NDJSON
-as well. `extract-track-records` writes a `{"_meta": {...}}` first line
+`export-track-records`, `export-lap-records`, and `export-db-dump` emit NDJSON
+as well. `export-track-records` writes a `{"_meta": {...}}` first line
 (org id, classification filter, generated-at timestamp) followed by one record
 per line.
 
-Track-record curation lives in `speedhive.processing.track_records_curation`:
+Curated track-record workflow files live in `speedhive.processing.track_records_files`
+and the review/update pipeline lives in `speedhive.processing.track_records_curation`:
 
+- `export_curated_track_records_ndjson(...)` exports the per-org curated file as NDJSON.
+- `import_curated_track_records_ndjson(...)` validates and merges/replaces curated NDJSON into the per-org workflow store.
 - `run_sync_and_diff(...)` assumes the SQLite cache is already populated and only performs extract/normalize/diff against curated and rejected records.
 - `refresh_and_scan(...)` is the orchestration helper used by the UI and CLI when they want to refresh the org cache first and then run the curation scan.
-- `load_curated(...)`, `save_curated(...)`, `load_candidates(...)`, `save_candidates(...)`, `load_rejected(...)`, and `save_rejected(...)` all use the shared NDJSON storage helpers.
+- `load_curated(...)`, `save_curated(...)`, `load_candidates(...)`, `save_candidates(...)`, `load_rejected(...)`, and `save_rejected(...)` all live in `speedhive.processing.track_records_store`.
 
 ## Project Structure
 
@@ -137,7 +144,9 @@ src/speedhive/
     ├── process_sqlite_import.py
     ├── track_records.py
     ├── process_lap_analysis.py
-    └── track_records_curation.py  # Track-record curation and review-state orchestration
+    ├── track_records_store.py      # Shared track-record workflow file I/O
+    ├── track_records_files.py      # Curated track-record import/export helpers
+    └── track_records_curation.py   # Track-record curation and review-state orchestration
 ```
 
 ## Notes

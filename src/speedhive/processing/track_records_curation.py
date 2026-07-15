@@ -23,8 +23,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from speedhive.processing.refresh_org_cache import refresh_org_cache
-from speedhive.ndjson import load_ndjson, save_ndjson
 from speedhive.processing.track_records import extract_records_from_storage
+from speedhive.processing.track_records_store import (
+    load_candidates,
+    load_curated,
+    load_json,
+    load_rejected,
+    paths_for_org,
+    save_candidates,
+    save_curated,
+    save_json,
+    save_rejected,
+)
 from speedhive.storage import SpeedhiveStorage
 
 GOTIFY_URL = os.environ.get("GOTIFY_URL")
@@ -32,63 +42,6 @@ GOTIFY_APP_TOKEN = os.environ.get("GOTIFY_APP_TOKEN")
 # Speedhive syncs are slow (lots of data per event) -- only re-sync if the
 # cache is older than this, unless the caller explicitly forces it.
 DEFAULT_STALE_AFTER_HOURS = float(os.environ.get("TRACK_RECORDS_STALE_HOURS", "20"))
-
-
-def org_track_records_dir(track_records_root: Path, org_id: int) -> Path:
-    return Path(track_records_root) / str(org_id)
-
-
-def paths_for_org(track_records_root: Path, org_id: int) -> dict:
-    d = org_track_records_dir(track_records_root, org_id)
-    return {
-        "dir": d,
-        "curated": d / "curated.ndjson",
-        "candidates": d / "candidates_pending.ndjson",
-        "rejected": d / "rejected.ndjson",
-        "alias_map": d / "class_alias_map.json",
-        "history": d / "history",
-        "tasks": d / "tasks",
-    }
-
-
-def load_json(path, default):
-    if not Path(path).exists():
-        return default
-    with open(path) as f:
-        return json.load(f)
-
-
-def save_json(path, data):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
-
-
-def load_curated(p):
-    return load_ndjson(p["curated"], {"date": None, "records": []}, "records")
-
-
-def save_curated(p, doc):
-    save_ndjson(p["curated"], doc, "records")
-
-
-def load_candidates(p):
-    return load_ndjson(p["candidates"], {"generated_at": None, "org_id": None, "candidates": []}, "candidates")
-
-
-def save_candidates(p, doc):
-    save_ndjson(p["candidates"], doc, "candidates")
-
-
-def load_rejected(p):
-    return load_ndjson(p["rejected"], {"rejected": []}, "rejected")
-
-
-def save_rejected(p, doc):
-    save_ndjson(p["rejected"], doc, "rejected")
-
 
 def lap_time_to_seconds(lap_time):
     """Parse 'm:ss.mmm' or 'ss.mmm' into float seconds; None if unparseable.

@@ -8,6 +8,10 @@ import sys
 from pathlib import Path
 
 from speedhive.cli.discovery import register_discovered
+from speedhive.processing.track_records_files import (
+    export_curated_track_records_ndjson,
+    import_curated_track_records_ndjson,
+)
 from speedhive.wrapper import SpeedhiveClient
 
 
@@ -81,6 +85,36 @@ def _extract_track_records(args):
     if args.output:
         argv.extend(["--output", str(args.output)])
     return _run_module_as_main("speedhive.exporters.export_track_records", argv)
+
+
+def _export_curated_track_records(args):
+    body = export_curated_track_records_ndjson(args.org, args.track_records_root)
+    if args.output:
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(body, encoding="utf-8")
+    else:
+        sys.stdout.write(body)
+    return 0
+
+
+def _import_curated_track_records(args):
+    in_path = Path(args.input)
+    if not in_path.exists():
+        print(f"Error: input file does not exist at '{in_path}'.", file=sys.stderr)
+        return 1
+    try:
+        notice = import_curated_track_records_ndjson(
+            args.org,
+            args.track_records_root,
+            in_path.read_text(encoding="utf-8"),
+            replace=args.mode == "replace",
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print(notice)
+    return 0
 
 
 def _scan_track_records(args):
@@ -190,12 +224,25 @@ def main():
     p.add_argument("--ignore-outliers", action="store_true", help="Ignore outlier lap times using IQR method")
     p.set_defaults(func=_extract_driver_laps)
 
-    p = sub.add_parser("extract-track-records", help="Extract track records from the primary SQLite cache to NDJSON")
+    p = sub.add_parser("export-track-records", help="Export track records from the primary SQLite cache to NDJSON")
     p.add_argument("--org", type=int, required=True, help="Organization ID")
     p.add_argument("--classification", default=None)
     p.add_argument("--db-path", type=Path, default=default_db_path(), help="Primary SQLite cache path")
     p.add_argument("--output", default=None, help="Output file path (NDJSON)")
     p.set_defaults(func=_extract_track_records)
+
+    p = sub.add_parser("export-curated-track-records", help="Export curated track records from the workflow store to NDJSON")
+    p.add_argument("--org", type=int, required=True, help="Organization ID")
+    p.add_argument("--track-records-root", type=Path, default=Path("./web_data/track_records"), help="Track-record workflow storage root")
+    p.add_argument("--output", default=None, help="Output file path (NDJSON)")
+    p.set_defaults(func=_export_curated_track_records)
+
+    p = sub.add_parser("import-curated-track-records", help="Import curated track records into the workflow store from NDJSON")
+    p.add_argument("--org", type=int, required=True, help="Organization ID")
+    p.add_argument("--track-records-root", type=Path, default=Path("./web_data/track_records"), help="Track-record workflow storage root")
+    p.add_argument("--input", required=True, help="Input file path (NDJSON)")
+    p.add_argument("--mode", choices=["merge", "replace"], default="merge")
+    p.set_defaults(func=_import_curated_track_records)
 
     p = sub.add_parser("scan-track-records", help="Diff track records against the curated store without refreshing the org cache")
     p.add_argument("--org", type=int, required=True, help="Organization ID")
