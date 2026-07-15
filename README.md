@@ -18,10 +18,17 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-## Common Commands
+## Getting Started
+
+Start by syncing an organization from Speedhive into the local SQLite cache:
 
 ```bash
 speedhive sync-org --org 30476
+```
+
+That cache becomes the source for analysis, exports, and track-record workflows:
+
+```bash
 speedhive report-consistency --org 30476
 speedhive extract-driver-laps --org 30476 --driver "Firstname Lastname"
 speedhive export-track-records --org 30476
@@ -35,35 +42,11 @@ speedhive import-curated-track-records --org 30476 --input ./curated.ndjson
 
 Run `speedhive --help` for the full command list.
 
-## Getting Started
+If you need to refresh the cache later, run `sync-org` again for the organization.
 
-There are two main ways to use this package:
+## Python Client
 
-- Use `SpeedhiveClient` for live API access.
-- Use the CLI analysis, export, and track-record workflows against the local SQLite cache after syncing.
-
-If you want the cache-based commands, sync an organization first:
-
-```bash
-speedhive sync-org --org 30476
-```
-
-After that, commands like `report-consistency`, `extract-driver-laps`, `scan-track-records`, and `refresh-track-records` can use the local cache. Run `sync-org` again whenever you want to refresh it.
-
-You can also use both in the same project: fetch live data with `SpeedhiveClient`, store it in the local cache, and then use the cache-backed commands for analysis and exports.
-
-## Python
-
-```python
-from speedhive.wrapper import SpeedhiveClient
-
-client = SpeedhiveClient.create(token="your-api-token")
-events = client.get_events(org_id=30476, limit=5)
-```
-
-### Friendly Client
-
-`SpeedhiveClient` is the simplest way to talk to the live API. It hides the low-level generated client and gives you direct methods for the common lookups:
+`SpeedhiveClient` is the friendly live API client. It talks directly to Speedhive and gives you simple methods for the common lookups:
 
 ```python
 from speedhive.wrapper import SpeedhiveClient
@@ -71,7 +54,7 @@ from speedhive.wrapper import SpeedhiveClient
 client = SpeedhiveClient.create(token="your-api-token")
 
 org = client.get_organization(30476)
-events = client.iter_events(30476)
+events = client.get_events(30476, limit=5)
 event = client.get_event(12345, include_sessions=True)
 sessions = client.get_sessions(12345)
 laps = client.get_laps(67890)
@@ -80,7 +63,7 @@ track_records = client.get_track_records(30476)
 fastest = client.get_fastest_track_record(30476, "FA")
 ```
 
-Use `get_*` when you want a list or one object. Use `iter_events(...)` when you want to stream events without loading the whole set at once.
+Use the client when you want live API data. Use the CLI when you want to work from the synced local cache.
 
 ## Package Layout
 
@@ -96,6 +79,6 @@ src/speedhive/
 
 ## Notes
 
-- SQLite is the main local cache.
+- SQLite is the local cache.
 - NDJSON is used for exports and curated track-record workflow files.
 - The UI repo uses this package as a submodule.
