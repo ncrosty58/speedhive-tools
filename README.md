@@ -8,6 +8,10 @@ CLI toolkit and Python library for the MyLaps Speedhive Event Results API.
 pip install speedhive-tools
 ```
 
+## Related Projects
+
+- Web UI: `speedhive-tools-ui` at https://github.com/ncrosty58/speedhive-tools-ui
+
 For local development:
 
 ```bash
