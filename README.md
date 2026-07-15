@@ -18,15 +18,15 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-## Getting Started
+## Start Here
 
-Start by syncing an organization from Speedhive into the local SQLite cache:
+If you want to work with local data, sync an organization from Speedhive into the SQLite cache first:
 
 ```bash
 speedhive sync-org --org 30476
 ```
 
-That cache becomes the source for analysis, exports, and track-record workflows:
+After that you can use the cache-backed workflows:
 
 ```bash
 speedhive report-consistency --org 30476
@@ -42,28 +42,28 @@ speedhive import-curated-track-records --org 30476 --input ./curated.ndjson
 
 Run `speedhive --help` for the full command list.
 
-If you need to refresh the cache later, run `sync-org` again for the organization.
+## Python API
 
-## Python Client
-
-`SpeedhiveClient` is the friendly live API client. It talks directly to Speedhive and gives you simple methods for the common lookups:
+`SpeedhiveClient` is the live API client. It talks to Speedhive directly and exposes the low-level API methods:
 
 ```python
 from speedhive.wrapper import SpeedhiveClient
 
 client = SpeedhiveClient.create(token="your-api-token")
-
 org = client.get_organization(30476)
 events = client.get_events(30476, limit=5)
-event = client.get_event(12345, include_sessions=True)
 sessions = client.get_sessions(12345)
 laps = client.get_laps(67890)
-announcements = client.get_announcements(67890)
+```
+
+The wrapper also includes higher-level convenience helpers built on top of those live API calls:
+
+```python
 track_records = client.get_track_records(30476)
 fastest = client.get_fastest_track_record(30476, "FA")
 ```
 
-Use the client when you want live API data. Use the CLI when you want to work from the synced local cache.
+Use the live client when you want direct API access. Use the CLI when you want to sync and work from the local SQLite cache.
 
 ## Package Layout
 
