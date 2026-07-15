@@ -5,7 +5,7 @@ import gzip
 import json
 import statistics
 
-from speedhive.analysis.lap_analysis import filter_outliers_iqr, compute_laps_and_enriched, compute_lap_statistics
+from speedhive.utils.lap_analysis import filter_outliers_iqr, compute_laps_and_enriched, compute_lap_statistics
 from speedhive.analyzers.analyze_consistency import get_consistency_rankings
 
 def test_filter_outliers_iqr():

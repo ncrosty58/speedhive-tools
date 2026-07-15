@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List
 
-from speedhive.analysis.lap_analysis import extract_iso_date, parse_track_record_text
+from speedhive.utils.lap_analysis import extract_iso_date, parse_track_record_text
 from speedhive.storage import SpeedhiveStorage
 
 def extract_records_from_storage(org: int, db_path: Path, classification: str | None = None) -> List[Dict[str, Any]]:

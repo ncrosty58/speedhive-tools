@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
-from speedhive.analysis.lap_analysis import load_session_map, parse_track_record_text
+from speedhive.utils.lap_analysis import load_session_map, parse_track_record_text
 from speedhive.ndjson import open_ndjson
 from speedhive.storage import SpeedhiveStorage
 

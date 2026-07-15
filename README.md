@@ -31,7 +31,7 @@ src/speedhive/
 ├── wrapper.py      # SpeedhiveClient high-level client wrapper exposing direct endpoints
 ├── storage.py      # SpeedhiveStorage SQLite relational persistence cache layer
 ├── ndjson.py       # Streaming NDJSON line serialization utilities
-├── analysis/       # Math/text analyzers (outliers, IQR, lap times, record text parsing)
+├── utils/          # Math/text analyzers (outliers, IQR, lap times, record text parsing)
 ├── analyzers/      # CLI analysis scripts (consistency reports, drivers report)
 ├── exporters/      # Data extractors (laps exporter, track records, SQLite db dumpers)
 ├── workflows/      # Multi-step workflows (incremental cache sync, dump loaders)

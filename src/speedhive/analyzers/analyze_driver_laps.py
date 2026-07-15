@@ -12,7 +12,7 @@ from pathlib import Path
 from statistics import mean, median, stdev
 from typing import Any, Dict, List
 
-from speedhive.analysis.lap_analysis import (
+from speedhive.utils.lap_analysis import (
     compute_laps_and_enriched_from_storage,
     extract_iso_date,
     normalize_name,

@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 from speedhive.ndjson import open_ndjson
-from speedhive.analysis.lap_analysis import compute_laps_and_enriched, parse_track_record_text
+from speedhive.utils.lap_analysis import compute_laps_and_enriched, parse_track_record_text
 
 
 def test_open_ndjson_plain():

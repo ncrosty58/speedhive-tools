@@ -10,7 +10,7 @@ def test_package_and_submodules_importable():
         "speedhive.exporters.export_full_dump",
         "speedhive.exporters.export_curated_track_records",
         "speedhive.analyzers.analyze_driver_laps",
-        "speedhive.analysis.lap_analysis",
+        "speedhive.utils.lap_analysis",
         "speedhive.workflows.refresh_org_cache",
         "speedhive.workflows.import_sqlite_dump",
         "speedhive.workflows.track_records.extract",
