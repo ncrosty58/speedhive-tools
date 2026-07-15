@@ -37,13 +37,18 @@ Run `speedhive --help` for the full command list.
 
 ## Getting Started
 
-The first step is to sync an organization into the local SQLite cache:
+There are two ways to use this package:
+
+- Use `SpeedhiveClient` for direct API calls.
+- Use the CLI analysis and export commands against the local SQLite cache.
+
+If you want the cache-based commands, sync an organization first:
 
 ```bash
 speedhive sync-org --org 30476
 ```
 
-After that, the analysis commands and the friendly `SpeedhiveClient` wrapper can read from the local cache. If you later want to refresh the cache, run `sync-org` again.
+After that, commands like `report-consistency`, `extract-driver-laps`, `scan-track-records`, and `refresh-track-records` can use the local cache. Run `sync-org` again whenever you want to refresh it.
 
 ## Python
 
