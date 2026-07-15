@@ -37,10 +37,10 @@ Run `speedhive --help` for the full command list.
 
 ## Getting Started
 
-There are two ways to use this package:
+There are two main ways to use this package:
 
-- Use `SpeedhiveClient` for direct API calls.
-- Use the CLI analysis and export commands against the local SQLite cache.
+- Use `SpeedhiveClient` for live API access.
+- Use the CLI analysis, export, and track-record workflows against the local SQLite cache after syncing.
 
 If you want the cache-based commands, sync an organization first:
 
@@ -49,6 +49,8 @@ speedhive sync-org --org 30476
 ```
 
 After that, commands like `report-consistency`, `extract-driver-laps`, `scan-track-records`, and `refresh-track-records` can use the local cache. Run `sync-org` again whenever you want to refresh it.
+
+You can also use both in the same project: fetch live data with `SpeedhiveClient`, store it in the local cache, and then use the cache-backed commands for analysis and exports.
 
 ## Python
 
@@ -61,7 +63,7 @@ events = client.get_events(org_id=30476, limit=5)
 
 ### Friendly Client
 
-`SpeedhiveClient` is the simplest way to talk to the API. It hides the low-level generated client and gives you direct methods for the common lookups:
+`SpeedhiveClient` is the simplest way to talk to the live API. It hides the low-level generated client and gives you direct methods for the common lookups:
 
 ```python
 from speedhive.wrapper import SpeedhiveClient
