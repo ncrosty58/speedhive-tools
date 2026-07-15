@@ -99,14 +99,14 @@ def main(argv=None) -> int:
 
     # NDJSON, matching the other row-shaped exports: a {"_meta": {...}} first
     # line for document-level fields, then one record per line.
-    meta = {
+    from speedhive.ndjson import dumps_ndjson
+
+    body = dumps_ndjson({
         "org_id": args.org,
         "classification": args.classification,
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-    }
-    lines = [json.dumps({"_meta": meta}, ensure_ascii=False)]
-    lines.extend(json.dumps(record, ensure_ascii=False) for record in records)
-    body = "\n".join(lines) + "\n"
+        "records": records,
+    }, "records")
     if args.output:
         out_path = Path(args.output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
