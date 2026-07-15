@@ -131,6 +131,49 @@ speedhive scan-track-records --org 30476
 speedhive refresh-track-records --org 30476
 ```
 
+## 💡 End-to-End Programmatic Example
+
+Here is a complete, typical integration script showing how a developer would programmatically:
+1. Initialize the client wrapper and storage interface.
+2. Synchronize full organizational event data from Speedhive to a local SQLite cache.
+3. Query the cached data locally to extract parsed track records.
+
+```python
+from pathlib import Path
+from speedhive.wrapper import SpeedhiveClient
+from speedhive.storage import SpeedhiveStorage
+from speedhive.workflows.refresh_org_cache import refresh_org_cache
+from speedhive.workflows.track_records.extract import extract_records_from_storage
+
+# 1. Initialize client and persistent storage
+client = SpeedhiveClient.create()
+db_path = Path("./my_speedhive_cache.db")
+storage = SpeedhiveStorage(db_path)
+org_id = 30476
+
+# 2. Sync the organization's data to the database cache
+print(f"Syncing data for organization {org_id}...")
+refresh_org_cache(
+    client=client,
+    storage=storage,
+    org_id=org_id,
+    mode="incremental",             # Can be 'incremental' or 'full'
+    recent_backfill_events=3        # Max events to re-sync in incremental mode
+)
+print("Synchronization complete.")
+
+# 3. Extract and print track records directly from local storage
+print("Extracting track records from local database...")
+records = extract_records_from_storage(
+    org=org_id,
+    db_path=db_path,
+    classification="Karting"        # Optional classification filter
+)
+
+for record in records:
+    print(f"Driver: {record['driver']} | Lap Time: {record['lap_time']} | Event: {record['event_name']}")
+```
+
 ---
 
 ## 🧪 Running Tests
