@@ -92,6 +92,8 @@ def test_get_laps_flatten(client):
 
 
 def test_get_track_records(client):
+    from speedhive.workflows.track_records.extract import extract_records_from_api
+
     # Mock iter_events and get_sessions, get_announcements
     with patch.object(
         SpeedhiveClient,
@@ -111,7 +113,7 @@ def test_get_track_records(client):
             }
         ],
     ), patch(
-        "speedhive.wrapper.parse_track_record_text",
+        "speedhive.workflows.track_records.extract.parse_track_record_text",
         return_value={
             "classification": "IT7",
             "lap_time": "1:17.870",
@@ -121,7 +123,7 @@ def test_get_track_records(client):
         },
     ):
         sc = SpeedhiveClient(client)
-        records = sc.get_track_records(org_id=30476)
+        records = extract_records_from_api(sc, org_id=30476)
         assert len(records) == 1
         assert records[0]["classification"] == "IT7"
 
