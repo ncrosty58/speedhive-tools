@@ -16,22 +16,21 @@ def main(argv=None) -> int:
 
     client = SpeedhiveClient.create(token=args.token)
 
-    record_iterator = client.iter_track_records_by_event(
+    from speedhive.workflows.track_records.extract import extract_records_from_api
+
+    records = extract_records_from_api(
+        client=client,
         org_id=args.org,
         classification=args.classification
     )
 
     if args.output_file:
         with open(args.output_file, "w") as f:
-            count = 0
-            for record in record_iterator:
+            for record in records:
                 f.write(json.dumps(record) + "\n")
-                count += 1
-                if count % 10 == 0:
-                    print(f"Found {count} records...", end="\r")
-            print(f"Finished. Found {count} total records.")
+            print(f"Finished. Found {len(records)} total records.")
     else:
-        for r in record_iterator:
+        for r in records:
             print(r)
 
     return 0
