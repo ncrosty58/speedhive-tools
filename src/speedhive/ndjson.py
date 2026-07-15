@@ -5,6 +5,7 @@ One convention, used by the CLI exporters and by consumers of this library
 ``{"_meta": {...}}`` carrying document-level fields, then one JSON object per
 line. Loaders return plain dicts shaped ``{**meta, records_key: [rows]}``.
 """
+import gzip
 import json
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
@@ -41,6 +42,23 @@ def save_ndjson(path, doc: Dict[str, Any], records_key: str) -> None:
 
 def write_ndjson_record(handle, payload: Any) -> None:
     handle.write(dumps_ndjson_record(payload) + "\n")
+
+
+def open_ndjson(path: Path) -> Iterator[Dict[str, Any]]:
+    """Yield JSON objects from an NDJSON file, including gzipped files."""
+    path = Path(path)
+    if not path.exists():
+        return
+    opener = gzip.open if (path.suffix == ".gz" or path.name.endswith(".gz")) else open
+    with opener(path, "rt", encoding="utf8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                continue
 
 
 def parse_ndjson_lines(lines, records_key: str) -> Dict[str, Any]:

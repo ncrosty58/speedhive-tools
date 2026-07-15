@@ -120,23 +120,23 @@ Canonical implementation lives in `src/speedhive/`:
 src/speedhive/
 ├── client.py
 ├── wrapper.py
+├── ndjson.py             # Shared NDJSON read/write helpers
 ├── generated/           # Auto-generated API client bindings
 ├── cli/                 # CLI entry point and dynamic discovery
 │   ├── discovery.py
 │   └── main.py
-├── exporters/           # Scrapers and cache sync modules
-│   ├── export_org_cache.py
+├── exporters/           # External file exporters and dump writers
+│   ├── export_track_records.py
 │   ├── export_full_dump.py
 │   └── ...
 ├── analyzers/           # Performance and lap analysis
 │   ├── analyze_consistency.py
 │   └── analyze_driver_laps.py
 └── processing/          # SQLite ETL and track record compilation
+    ├── refresh_org_cache.py
     ├── process_sqlite_import.py
-    ├── process_track_records.py
+    ├── track_records.py
     ├── process_lap_analysis.py
-    └── ndjson.py
-└── processing/
     └── track_records_curation.py  # Track-record curation and review-state orchestration
 ```
 

@@ -80,7 +80,7 @@ def _extract_track_records(args):
         argv.extend(["--db-path", str(args.db_path)])
     if args.output:
         argv.extend(["--output", str(args.output)])
-    return _run_module_as_main("speedhive.processing.process_track_records", argv)
+    return _run_module_as_main("speedhive.exporters.export_track_records", argv)
 
 
 def _scan_track_records(args):
@@ -123,7 +123,7 @@ def _build_sync_argv(args) -> list[str]:
 
 def _sync_org(args):
     argv = _build_sync_argv(args)
-    return _run_module_as_main("speedhive.exporters.export_org_cache", argv)
+    return _run_module_as_main("speedhive.processing.refresh_org_cache", argv)
 
 
 def _import_dump(args):

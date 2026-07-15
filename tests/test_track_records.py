@@ -7,7 +7,7 @@ from speedhive.processing.process_lap_analysis import parse_track_record_text
 
 def test_extract_track_records_cli_outputs_ndjson(tmp_path, monkeypatch):
     """extract-track-records emits NDJSON: a _meta line, then one record per line."""
-    from speedhive.processing import process_track_records as ptr
+    from speedhive.exporters import export_track_records as ptr
 
     db = tmp_path / "cache.db"
     db.write_text("")  # only the exists() check touches it once extraction is stubbed

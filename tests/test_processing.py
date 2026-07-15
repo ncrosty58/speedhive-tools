@@ -3,9 +3,7 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-
-from speedhive.processing.ndjson import open_ndjson
+from speedhive.ndjson import open_ndjson
 from speedhive.processing.process_lap_analysis import compute_laps_and_enriched, parse_track_record_text
 
 
@@ -60,8 +58,8 @@ def test_compute_laps_and_enriched(tmp_path):
         }
     ]
     with gzip.open(org_dir / "laps.ndjson.gz", "wt") as f:
-        for l in laps:
-            f.write(json.dumps(l) + "\n")
+        for lap_entry in laps:
+            f.write(json.dumps(lap_entry) + "\n")
 
     laps_by_driver, enriched = compute_laps_and_enriched(dump_dir, org)
     assert "session1_pos1" in laps_by_driver

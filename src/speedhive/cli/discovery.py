@@ -8,8 +8,8 @@ MAPPING = {
     "analyze-consistency": "report-consistency",
     "analyze-driver-laps": "extract-driver-laps",
     "process-sqlite-import": "import-dump",
-    "process-track-records": "extract-track-records",
-    "export-org-cache": "sync-org",
+    "export-track-records": "extract-track-records",
+    "refresh-org-cache": "sync-org",
     "export-full-dump": "export-dump",
 }
 

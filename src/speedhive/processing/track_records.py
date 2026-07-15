@@ -1,22 +1,11 @@
-"""Extract track-record announcements from SQLite database to JSON."""
+"""Extract track-record announcements from SQLite database."""
 from __future__ import annotations
 
-import argparse
-import json
-import os
-import sys
-import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
 from speedhive.processing.process_lap_analysis import extract_iso_date, parse_track_record_text
 from speedhive.storage import SpeedhiveStorage
-
-
-def default_db_path() -> Path:
-    return Path(os.environ.get("SPEEDHIVE_DB_PATH", "./web_data/speedhive.db"))
-
 
 def extract_records_from_storage(org: int, db_path: Path, classification: str | None = None) -> List[Dict[str, Any]]:
     storage = SpeedhiveStorage(db_path)
@@ -81,42 +70,3 @@ def extract_records_from_storage(org: int, db_path: Path, classification: str | 
 
     records.sort(key=lambda row: ((row.get("classification") or "").upper(), row.get("lap_time_seconds") or float("inf")))
     return records
-
-
-def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Extract track records from the primary SQLite cache to NDJSON")
-    parser.add_argument("--org", type=int, required=True)
-    parser.add_argument("--classification", default=None)
-    parser.add_argument("--db-path", type=Path, default=default_db_path())
-    parser.add_argument("--output", default=None, help="Output file path (NDJSON)")
-    args = parser.parse_args(argv)
-
-    if not args.db_path.exists():
-        print(f"Error: Database file does not exist at '{args.db_path}'. Please sync or import first.", file=sys.stderr)
-        return 1
-
-    records = extract_records_from_storage(args.org, args.db_path, args.classification)
-
-    # NDJSON, matching the other row-shaped exports: a {"_meta": {...}} first
-    # line for document-level fields, then one record per line.
-    from speedhive.ndjson import dumps_ndjson
-
-    body = dumps_ndjson({
-        "org_id": args.org,
-        "classification": args.classification,
-        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-        "records": records,
-    }, "records")
-    if args.output:
-        out_path = Path(args.output)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(body, encoding="utf8")
-        print(f"Wrote {out_path} ({len(records)} records)")
-    else:
-        sys.stdout.write(body)
-
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

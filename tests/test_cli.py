@@ -53,7 +53,7 @@ def test_sync_org_dispatches_without_legacy_cache_root(mock_run):
         except SystemExit:
             pass
     mock_run.assert_called_once_with(
-        "speedhive.exporters.export_org_cache",
+        "speedhive.processing.refresh_org_cache",
         [
             "--org",
             "30476",
@@ -81,7 +81,6 @@ def test_import_dump_dispatches(mock_run):
 
 
 def test_discovery_registers_builtin():
-    import argparse
     from speedhive.cli.discovery import register_discovered
 
     parser = argparse.ArgumentParser()

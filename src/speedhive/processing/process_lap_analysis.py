@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lap analysis utilities: NDJSON reading, time parsing, track record extraction."""
+"""Lap analysis utilities: NDJSON reading, time parsing, track record parsing."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 import statistics
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from speedhive.processing.ndjson import open_ndjson
+from speedhive.ndjson import open_ndjson
 
 if TYPE_CHECKING:
     from speedhive.storage import SpeedhiveStorage
