@@ -106,7 +106,7 @@ as well. `extract-track-records` writes a `{"_meta": {...}}` first line
 (org id, classification filter, generated-at timestamp) followed by one record
 per line.
 
-Track-record curation lives in `speedhive.curation`:
+Track-record curation lives in `speedhive.processing.track_records_curation`:
 
 - `run_sync_and_diff(...)` assumes the SQLite cache is already populated and only performs extract/normalize/diff against curated and rejected records.
 - `refresh_and_scan(...)` is the orchestration helper used by the UI and CLI when they want to refresh the org cache first and then run the curation scan.
@@ -136,7 +136,8 @@ src/speedhive/
     ├── process_track_records.py
     ├── process_lap_analysis.py
     └── ndjson.py
-└── curation.py           # Track-record curation and review-state orchestration
+└── processing/
+    └── track_records_curation.py  # Track-record curation and review-state orchestration
 ```
 
 ## Notes

@@ -84,7 +84,7 @@ def _extract_track_records(args):
 
 
 def _scan_track_records(args):
-    from speedhive import curation as track_records
+    from speedhive.processing import track_records_curation as track_records
 
     result = track_records.run_sync_and_diff(args.org, args.db_path, args.track_records_root)
     print(json.dumps(result, indent=2, sort_keys=True))
@@ -92,7 +92,7 @@ def _scan_track_records(args):
 
 
 def _refresh_track_records(args):
-    from speedhive import curation as track_records
+    from speedhive.processing import track_records_curation as track_records
 
     client = SpeedhiveClient.create()
     outcome = track_records.refresh_and_scan(

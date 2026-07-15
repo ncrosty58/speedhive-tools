@@ -1,6 +1,6 @@
 import json
 
-from speedhive import curation
+from speedhive.processing import track_records_curation as curation
 from speedhive.ndjson import dumps_ndjson, load_ndjson, parse_ndjson_lines, save_ndjson
 
 
