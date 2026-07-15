@@ -1,6 +1,36 @@
+import json
+
 import pytest
 
 from speedhive.processing.process_lap_analysis import parse_track_record_text
+
+
+def test_extract_track_records_cli_outputs_ndjson(tmp_path, monkeypatch):
+    """extract-track-records emits NDJSON: a _meta line, then one record per line."""
+    from speedhive.processing import process_track_records as ptr
+
+    db = tmp_path / "cache.db"
+    db.write_text("")  # only the exists() check touches it once extraction is stubbed
+    monkeypatch.setattr(
+        ptr,
+        "extract_records_from_storage",
+        lambda org, db_path, classification=None: [
+            {"classification": "IT7", "lap_time": "1:17.870", "driver": "Bob Cross"},
+            {"classification": "SM", "lap_time": "1:14.203", "driver": "Jane Doe"},
+        ],
+    )
+
+    out = tmp_path / "records.ndjson"
+    rc = ptr.main(["--org", "30476", "--db-path", str(db), "--output", str(out)])
+    assert rc == 0
+
+    lines = out.read_text().strip().splitlines()
+    assert len(lines) == 3
+    meta = json.loads(lines[0])["_meta"]
+    assert meta["org_id"] == 30476
+    assert meta["generated_at"]
+    assert json.loads(lines[1])["classification"] == "IT7"
+    assert json.loads(lines[2])["driver"] == "Jane Doe"
 
 
 @pytest.mark.parametrize(

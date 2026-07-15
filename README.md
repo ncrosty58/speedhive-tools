@@ -93,6 +93,11 @@ web_data/
 └── speedhive.db
 ```
 
+`extract-track-records`, `export-lap-records`, and `export-db-dump` emit NDJSON
+as well. `extract-track-records` writes a `{"_meta": {...}}` first line
+(org id, classification filter, generated-at timestamp) followed by one record
+per line.
+
 ## Project Structure
 
 Canonical implementation lives in `src/speedhive/`:

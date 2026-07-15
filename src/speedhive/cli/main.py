@@ -161,11 +161,11 @@ def main():
     p.add_argument("--ignore-outliers", action="store_true", help="Ignore outlier lap times using IQR method")
     p.set_defaults(func=_extract_driver_laps)
 
-    p = sub.add_parser("extract-track-records", help="Extract track records from the primary SQLite cache to JSON")
+    p = sub.add_parser("extract-track-records", help="Extract track records from the primary SQLite cache to NDJSON")
     p.add_argument("--org", type=int, required=True, help="Organization ID")
     p.add_argument("--classification", default=None)
     p.add_argument("--db-path", type=Path, default=default_db_path(), help="Primary SQLite cache path")
-    p.add_argument("--output", default=None, help="Output file path (JSON)")
+    p.add_argument("--output", default=None, help="Output file path (NDJSON)")
     p.set_defaults(func=_extract_track_records)
 
     p = sub.add_parser("sync-org", help="Sync org data into the primary SQLite cache")
