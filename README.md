@@ -1,17 +1,39 @@
 # speedhive-tools
 
+[![PyPI](https://img.shields.io/pypi/v/speedhive-tools)](https://pypi.org/project/speedhive-tools/)
+[![Python](https://img.shields.io/pypi/pyversions/speedhive-tools)](https://pypi.org/project/speedhive-tools/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A Python client, SQLite persistence layer, and CLI for scraping and analyzing
 [MyLaps Speedhive](https://speedhive.com) race results. It powers the
 [speedhive-tools-ui](https://github.com/ncrosty58/speedhive-tools-ui) dashboard,
-but works standalone as a library or command-line tool.
+but works standalone as a library or command-line tool — no dashboard or
+web framework required.
 
-Install:
+## Features
+
+- **HTTP client** for the Speedhive API — organizations, events, sessions,
+  results, laps, lap charts, announcements, championships.
+- **SQLite cache** (`SpeedhiveStorage`) — sync once, query fast and offline;
+  incremental or full re-sync per organization.
+- **CLI** (`speedhive ...`) for syncing, exporting, and analyzing without
+  writing any code.
+- **Track-record curation workflow** — extracts announcer-flagged track/class
+  records from session announcements, diffs against a human-curated list, and
+  queues only new/changed candidates for review.
+- **Optional LLM-based parsing** (Gemini) for the track-record workflow, for
+  announcer phrasings a regex can't catch — regex remains the zero-dependency
+  default.
+- **Offline NDJSON dumps** — export a synced org to portable files and
+  reload them into a fresh cache elsewhere, no API access required.
+
+## Installation
 
 ```bash
 pip install speedhive-tools
 ```
 
-or, for local development:
+For local development:
 
 ```bash
 git clone https://github.com/ncrosty58/speedhive-tools.git
@@ -19,6 +41,41 @@ cd speedhive-tools
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
+
+## Quickstart
+
+The fastest path from nothing to queryable data — sync one organization into
+a local SQLite cache, then read from it:
+
+```python
+from speedhive.wrapper import SpeedhiveClient
+from speedhive.storage import SpeedhiveStorage
+from speedhive.workflows.refresh_org_cache import refresh_org_cache
+
+client = SpeedhiveClient.create()
+storage = SpeedhiveStorage("speedhive.db")
+
+refresh_org_cache(client=client, storage=storage, org_id=30476, mode="full")
+
+records = storage.get_track_records(30476)
+print(f"{len(records)} track records found")
+```
+
+Or the CLI equivalent, no code required:
+
+```bash
+speedhive sync-org --org 30476 --mode full --db-path speedhive.db
+speedhive export-track-records --org 30476 --db-path speedhive.db
+```
+
+The rest of this README is two parallel guides — pick whichever matches how
+you want to use this project:
+
+- **[CLI Guide](#cli-guide)** — you just want to run commands, no Python.
+- **[Python API Guide](#python-api-guide)** — you're writing code against
+  `SpeedhiveClient`/`SpeedhiveStorage` directly.
+
+Both sit on the same architecture, described next.
 
 ---
 
@@ -56,7 +113,10 @@ src/speedhive/
 ├── storage.py                   # SpeedhiveStorage — SQLite cache + queries
 ├── ndjson.py                    # Streaming NDJSON helpers
 ├── generated/                   # Auto-generated OpenAPI models/endpoints
-├── utils/                       # Lap-time parsing, outlier detection, text parsing
+├── llm/                         # Optional LLM-based track-record parsing
+│   ├── gemini.py                # Gemini client (env-var config)
+│   └── track_records.py         # Provider-agnostic prompt/schema/parsing logic
+├── utils/                       # Lap-time parsing, outlier detection, regex text parsing
 ├── analyzers/                   # analyze_consistency, analyze_driver_laps (CLI)
 ├── exporters/                   # export_db_dump, export_lap_records, export_track_records, ...
 ├── workflows/
@@ -71,9 +131,92 @@ src/speedhive/
 
 ---
 
-## Programmatic usage
+## CLI Guide
 
-### Scrape live from the API
+Installing the package registers a `speedhive` executable. Every command
+accepts `--db-path` (defaults to `$SPEEDHIVE_DB_PATH` or
+`./web_data/speedhive.db`) — run `speedhive <command> --help` for full options
+on any of them.
+
+### 1. Sync an organization
+
+```bash
+speedhive sync-org --org 30476 --mode full --db-path speedhive.db
+```
+
+Once synced, `--mode incremental` only re-checks new/updated events (plus a
+handful of recent ones, via `--recent-backfill-events`) instead of
+re-scraping everything:
+
+```bash
+speedhive sync-org --org 30476 --mode incremental --recent-backfill-events 5
+```
+
+### 2. Explore what's cached
+
+```bash
+speedhive report-consistency --org 30476 --min-laps 15 --top 20 --ignore-outliers
+speedhive extract-driver-laps --org 30476 --driver "Jane Doe"
+```
+
+### 3. Export to NDJSON
+
+```bash
+speedhive export-lap-records --org 30476 --db-path speedhive.db
+speedhive export-track-records --org 30476 --classification GT3
+```
+
+### 4. Track-record curation
+
+```bash
+# Refresh the cache if stale, then diff announcer-flagged records against
+# the curated list -- writes new candidates for review, nothing automatic
+speedhive refresh-track-records --org 30476
+
+# Or just diff an already-synced cache, no API calls:
+speedhive scan-track-records --org 30476
+
+# Export/import the human-approved list
+speedhive export-curated-track-records --org 30476
+speedhive import-curated-track-records --org 30476 --input curated.ndjson
+```
+
+### 5. Portable offline dumps
+
+Move a synced org between machines without re-hitting the API:
+
+```bash
+speedhive export-db-dump --org 30476 --output-dir ./snapshots/30476
+speedhive import-dump --org 30476 --dump-dir ./snapshots
+```
+
+### Full command reference
+
+| Command | Purpose |
+| :--- | :--- |
+| `sync-org --org ID [--mode full\|incremental]` | Scrape an org from the API into the SQLite cache |
+| `report-consistency --org ID [--driver NAME]` | Rank drivers by lap-time consistency (CV), optionally look up one driver's percentile |
+| `extract-driver-laps --org ID --driver NAME` | Fuzzy-match a driver and dump their race laps + stats to JSON |
+| `export-track-records --org ID [--classification C]` | Export parsed track/class records from the cache to NDJSON |
+| `export-lap-records --org ID` | Export raw lap rows per session to NDJSON |
+| `export-db-dump --org ID --output-dir DIR` | Export a full offline NDJSON dump of an org |
+| `import-dump --org ID --dump-dir DIR` | Load an offline NDJSON dump into the SQLite cache |
+| `export-dump --org ID --output DIR` | Full raw dump export (events/sessions/results/laps/announcements) |
+| `scan-track-records --org ID` | Diff the curated track-record store against an already-synced cache |
+| `refresh-track-records --org ID [--force]` | Refresh the cache if stale, then scan for track-record candidates |
+| `export-curated-track-records --org ID` | Export the human-approved curated record list to NDJSON |
+| `import-curated-track-records --org ID --input FILE` | Merge or replace the curated record list from NDJSON |
+
+---
+
+## Python API Guide
+
+This is for writing code directly against the library's classes — no CLI
+involved. Each step builds on the last.
+
+### Talk to the API directly
+
+For quick, uncached, one-off lookups, `SpeedhiveClient` is enough on its own:
 
 ```python
 from speedhive.wrapper import SpeedhiveClient
@@ -85,17 +228,20 @@ sessions = client.get_sessions(event_id=12345)
 laps = client.get_laps(session_id=67890)
 ```
 
-### Sync an org into a local SQLite cache
+See `examples/` in this repo for more of these (announcements, championships,
+lap charts, streaming laps to a file, etc.) — small, runnable, dependency-free
+scripts that use only `SpeedhiveClient`, no SQLite involved.
 
-`SpeedhiveStorage` is constructed once and threaded through every call that
-touches it:
+### Sync into a local cache
+
+For anything beyond a one-off lookup, sync into `SpeedhiveStorage` instead of
+re-hitting the API every time. Construct it once and thread it through every
+call that touches it:
 
 ```python
 from speedhive.storage import SpeedhiveStorage
-from speedhive.wrapper import SpeedhiveClient
 from speedhive.workflows.refresh_org_cache import refresh_org_cache
 
-client = SpeedhiveClient.create()
 storage = SpeedhiveStorage("speedhive.db")
 
 refresh_org_cache(
@@ -145,13 +291,7 @@ scan = curation.run_sync_and_diff(30476, storage, "./web_data/track_records")
 By default, extraction uses the regex-based `parse_track_record_text`, which
 only catches one exact announcer phrasing. Pass a `bulk_parser` (one call
 covering every announcement text for the org, aligned by position) to use an
-LLM instead — `speedhive.llm.gemini` has the Gemini client (config via
-`GEMINI_API_KEY`/`GEMINI_MODEL` env vars) and `speedhive.llm.track_records`
-has the provider-agnostic prompt/schema/parsing logic. `run_sync_and_diff`/
-`storage.get_track_records` also accept a `parse_cache` (announcement identity
--> cached result) plus an `on_parsed` callback, so repeat scans only pay for
-genuinely new announcements instead of re-parsing an org's entire history
-every time:
+LLM instead:
 
 ```python
 from speedhive.llm import parse_track_records_bulk_with_gemini
@@ -161,6 +301,18 @@ scan = curation.run_sync_and_diff(
     bulk_parser=parse_track_records_bulk_with_gemini,
 )
 ```
+
+`speedhive.llm.gemini` is the actual Gemini client (config via
+`GEMINI_API_KEY`/`GEMINI_MODEL` env vars — see Configuration below);
+`speedhive.llm.track_records` is the provider-agnostic prompt/schema/parsing
+logic underneath it, which takes an injected `call_llm_fn` so it has no
+dependency on Gemini specifically if you want to plug in a different model.
+
+`run_sync_and_diff`/`storage.get_track_records` also accept a `parse_cache`
+(announcement identity -> cached result) plus an `on_parsed` callback, so
+repeat scans only pay for genuinely new announcements instead of re-parsing
+an org's entire history every time — see `tests/test_llm.py` for a worked
+example of wiring the cache up yourself.
 
 ### Offline dumps
 
@@ -176,33 +328,19 @@ import_dump_to_storage(org=30476, dump_dir="./snapshots", storage=storage)
 
 ---
 
-## Command-line interface
+## Examples
 
-Installing the package registers a `speedhive` executable.
-
-| Command | Purpose |
-| :--- | :--- |
-| `sync-org --org ID [--mode full\|incremental]` | Scrape an org from the API into the SQLite cache |
-| `report-consistency --org ID [--driver NAME]` | Rank drivers by lap-time consistency (CV), optionally look up one driver's percentile |
-| `extract-driver-laps --org ID --driver NAME` | Fuzzy-match a driver and dump their race laps + stats to JSON |
-| `export-track-records --org ID [--classification C]` | Export parsed track/class records from the cache to NDJSON |
-| `export-lap-records --org ID` | Export raw lap rows per session to NDJSON |
-| `export-db-dump --org ID --output-dir DIR` | Export a full offline NDJSON dump of an org |
-| `import-dump --org ID --dump-dir DIR` | Load an offline NDJSON dump into the SQLite cache |
-| `export-dump --org ID --output DIR` | Full raw dump export (events/sessions/results/laps/announcements) |
-| `scan-track-records --org ID` | Diff the curated track-record store against an already-synced cache |
-| `refresh-track-records --org ID [--force]` | Refresh the cache if stale, then scan for track-record candidates |
-| `export-curated-track-records --org ID` | Export the human-approved curated record list to NDJSON |
-| `import-curated-track-records --org ID --input FILE` | Merge or replace the curated record list from NDJSON |
-
-All commands accept `--db-path` (defaults to `$SPEEDHIVE_DB_PATH` or
-`./web_data/speedhive.db`). Run `speedhive <command> --help` for full options.
+`examples/` has small, standalone scripts against `SpeedhiveClient` only (no
+storage, no caching) — good starting points for exploring a single endpoint:
 
 ```bash
-speedhive sync-org --org 30476 --mode incremental --recent-backfill-events 5
-speedhive report-consistency --org 30476 --min-laps 15 --top 20 --ignore-outliers
-speedhive refresh-track-records --org 30476
+python examples/example_get_organization.py --org 30476
+python examples/example_get_session_announcements.py --session 67890
+python examples/example_stream_announcements.py --org 30476 --output-file announcements.ndjson
+python examples/example_track_records.py --org 30476 --output-file records.ndjson
 ```
+
+Run any of them with `--help` to see its full argument list.
 
 ---
 
@@ -217,9 +355,18 @@ speedhive refresh-track-records --org 30476
 
 ---
 
-## Testing
+## Development
 
 ```bash
 pip install -e ".[dev]"
-pytest
+pytest              # test suite
+ruff check src/     # lint
 ```
+
+Releases are tag-triggered (`git tag vX.Y.Z && git push origin vX.Y.Z`) — CI
+runs the test suite, builds the package, publishes to PyPI, and creates the
+GitHub release automatically. Bump `version` in `pyproject.toml` first.
+
+## License
+
+[MIT](LICENSE) © Nathan Crosty
