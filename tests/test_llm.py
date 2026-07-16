@@ -1,5 +1,6 @@
 import json
 
+from speedhive.llm import get_gemini_api_key, get_gemini_model, DEFAULT_MODEL
 from speedhive.utils.llm_track_records import (
     parse_track_record_text_llm,
     parse_track_record_texts_llm_bulk,
@@ -11,6 +12,38 @@ def _fake_call(response):
     def call(prompt, schema):
         return response
     return call
+
+
+def test_get_gemini_api_key_prefers_org_scoped_over_bare(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY_30476", raising=False)
+
+    assert get_gemini_api_key() is None
+    assert get_gemini_api_key(org_id=30476) is None
+
+    monkeypatch.setenv("GEMINI_API_KEY", "bare-key")
+    assert get_gemini_api_key() == "bare-key"
+    assert get_gemini_api_key(org_id=30476) == "bare-key", "falls back to the bare var when no org-scoped one is set"
+
+    monkeypatch.setenv("GEMINI_API_KEY_30476", "org-specific-key")
+    assert get_gemini_api_key(org_id=30476) == "org-specific-key", "org-scoped var takes priority"
+    assert get_gemini_api_key(org_id=99999) == "bare-key", "a different org still falls back to the bare var"
+    assert get_gemini_api_key() == "bare-key", "no org_id given -- unaffected by any org-scoped var"
+
+
+def test_get_gemini_model_prefers_org_scoped_and_has_a_default(monkeypatch):
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    monkeypatch.delenv("GEMINI_MODEL_30476", raising=False)
+
+    assert get_gemini_model() == DEFAULT_MODEL
+    assert get_gemini_model(org_id=30476) == DEFAULT_MODEL
+
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-bare")
+    assert get_gemini_model(org_id=30476) == "gemini-bare"
+
+    monkeypatch.setenv("GEMINI_MODEL_30476", "gemini-org-specific")
+    assert get_gemini_model(org_id=30476) == "gemini-org-specific"
+    assert get_gemini_model(org_id=99999) == "gemini-bare"
 
 
 def test_parse_track_record_text_llm_found():

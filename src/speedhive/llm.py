@@ -1,10 +1,13 @@
 """LLM client (currently Google Gemini) used by the track-record parsers in
 speedhive.utils.llm_track_records.
 
-Config is env-var only -- GEMINI_API_KEY / GEMINI_MODEL -- matching every
-other credential this library's caller (speedhive-tools-ui) uses (e.g.
-RESEND_API_KEY, GOTIFY_APP_TOKEN): no file-based config, no UI-editable
-secret storage.
+Config is env-var based -- GEMINI_API_KEY / GEMINI_MODEL, or their per-org
+variants GEMINI_API_KEY_<org_id> / GEMINI_MODEL_<org_id> when an org_id is
+given, falling back to the bare name as a shared default. Per-org values are
+set by speedhive-tools-ui's Track Records Settings UI (app/env_config.py
+writes them into a shared .env file), but reading them here has no
+dependency on that -- any process with the right env vars set (a CLI
+invocation included) resolves the same value.
 """
 import json
 import os
@@ -16,11 +19,19 @@ from google.genai import types
 DEFAULT_MODEL = "gemini-2.5-flash"
 
 
-def get_gemini_api_key() -> Optional[str]:
+def get_gemini_api_key(org_id: Optional[int] = None) -> Optional[str]:
+    if org_id is not None:
+        scoped = os.environ.get(f"GEMINI_API_KEY_{org_id}")
+        if scoped:
+            return scoped
     return os.environ.get("GEMINI_API_KEY")
 
 
-def get_gemini_model() -> str:
+def get_gemini_model(org_id: Optional[int] = None) -> str:
+    if org_id is not None:
+        scoped = os.environ.get(f"GEMINI_MODEL_{org_id}")
+        if scoped:
+            return scoped
     return os.environ.get("GEMINI_MODEL") or DEFAULT_MODEL
 
 
@@ -32,16 +43,18 @@ def call_gemini_json(
     temperature: float = 0.0,
     max_output_tokens: Optional[int] = None,
     timeout_ms: Optional[int] = None,
+    org_id: Optional[int] = None,
 ) -> Any:
     """Call Gemini and return the parsed JSON response.
 
     Raises RuntimeError if no API key is configured, or the underlying
     google-genai exception if the call itself fails.
     """
-    key = api_key or get_gemini_api_key()
+    key = api_key or get_gemini_api_key(org_id)
     if not key:
+        suffix = f" (or GEMINI_API_KEY_{org_id})" if org_id is not None else ""
         raise RuntimeError(
-            "No Gemini API key configured. Set the GEMINI_API_KEY environment variable."
+            f"No Gemini API key configured. Set the GEMINI_API_KEY{suffix} environment variable."
         )
 
     http_options = types.HttpOptions(timeout=timeout_ms) if timeout_ms else None
@@ -56,7 +69,7 @@ def call_gemini_json(
         config_kwargs["max_output_tokens"] = max_output_tokens
 
     response = client.models.generate_content(
-        model=model or get_gemini_model(),
+        model=model or get_gemini_model(org_id),
         contents=prompt,
         config=types.GenerateContentConfig(**config_kwargs),
     )
@@ -64,18 +77,18 @@ def call_gemini_json(
     return json.loads(response.text)
 
 
-def parse_track_record_text_with_gemini(text: str) -> Optional[dict]:
+def parse_track_record_text_with_gemini(text: str, org_id: Optional[int] = None) -> Optional[dict]:
     """Drop-in replacement for speedhive.utils.lap_analysis.parse_track_record_text,
     backed by the configured Gemini model instead of a regex."""
     from speedhive.utils.llm_track_records import parse_track_record_text_llm
 
     def _call(prompt: str, schema: dict) -> Any:
-        return call_gemini_json(prompt, response_schema=schema)
+        return call_gemini_json(prompt, response_schema=schema, org_id=org_id)
 
     return parse_track_record_text_llm(text, _call)
 
 
-def parse_track_records_bulk_with_gemini(texts: List[str]) -> List[Optional[dict]]:
+def parse_track_records_bulk_with_gemini(texts: List[str], org_id: Optional[int] = None) -> List[Optional[dict]]:
     """Drop-in bulk replacement: parses an entire list of announcement texts
     in a single Gemini call instead of one call per announcement. Returns a
     list aligned with `texts` (record dict or None per position)."""
@@ -89,6 +102,7 @@ def parse_track_records_bulk_with_gemini(texts: List[str]) -> List[Optional[dict
             response_schema=schema,
             max_output_tokens=65536,
             timeout_ms=600_000,
+            org_id=org_id,
         )
 
     return parse_track_record_texts_llm_bulk(texts, _call)

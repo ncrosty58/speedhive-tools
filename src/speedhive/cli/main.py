@@ -192,6 +192,14 @@ def _export_db_dump(args):
 
 
 def main():
+    from dotenv import load_dotenv
+    load_dotenv()
+    # Per-org settings (GEMINI_API_KEY_<org>, RESEND_API_KEY_<org>, etc.) saved
+    # via speedhive-tools-ui's Settings UI live alongside its web_data dir,
+    # not the top-level .env -- see app/env_config.py in that project.
+    web_data_dir = os.environ.get("SPEEDHIVE_WEB_DATA_DIR", "./web_data")
+    load_dotenv(os.path.join(web_data_dir, "org_settings.env"))
+
     parser = argparse.ArgumentParser(description="Speedhive Tools")
     sub = parser.add_subparsers(dest="command")
 
