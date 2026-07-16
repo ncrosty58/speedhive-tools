@@ -19,9 +19,11 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+from collections import defaultdict
 from datetime import datetime, timezone
 
 from speedhive.ndjson import save_ndjson
+from speedhive.utils.lap_analysis import normalize_name
 from speedhive.workflows.refresh_org_cache import refresh_org_cache
 from speedhive.stores.track_records import (
     load_candidates,
@@ -133,6 +135,50 @@ def rejected_key(classAbbreviation, lapTime, driverName, date):
     )
 
 
+LAP_TIME_MATCH_TOLERANCE_SECONDS = 0.01
+
+
+def lap_times_match(a, b, tolerance=LAP_TIME_MATCH_TOLERANCE_SECONDS):
+    """True if two lap-time strings represent the same time within a small
+    tolerance, tolerating format differences the exact-string ldc check
+    misses (e.g. curated '0:59.439' vs raw announcer '59.439', or
+    hand-transcription rounding like '1:06.897' vs '1:06.896')."""
+    secs_a = lap_time_to_seconds(a)
+    secs_b = lap_time_to_seconds(b)
+    if secs_a is None or secs_b is None:
+        return False
+    return abs(secs_a - secs_b) <= tolerance
+
+
+def driver_names_match(a, b):
+    """True if two driver names plausibly refer to the same person, tolerating
+    a missing middle name/initial (e.g. curated 'Andrew Abbott' vs raw
+    announcer 'Andrew T Abbott') that exact-string matching misses.
+
+    Reuses lap_analysis.normalize_name for case/punctuation normalization,
+    then compares full normalized equality first and falls back to matching
+    on first + last token only, so an extra/missing middle token doesn't
+    prevent a match while still requiring both ends of the name to agree.
+    """
+    tokens_a = normalize_name(a).split()
+    tokens_b = normalize_name(b).split()
+    if not tokens_a or not tokens_b:
+        return False
+    if tokens_a == tokens_b:
+        return True
+    return tokens_a[0] == tokens_b[0] and tokens_a[-1] == tokens_b[-1]
+
+
+def records_match_normalized(class_a, lap_a, name_a, class_b, lap_b, name_b):
+    """Normalized equivalent of comparing two (class, lapTime, driverName)
+    identities -- classification still compares exact (it's already resolved
+    through the org's alias map by this point), lap time and driver name use
+    the tolerant comparisons above."""
+    if normalize_identity_part(class_a) != normalize_identity_part(class_b):
+        return False
+    return lap_times_match(lap_a, lap_b) and driver_names_match(name_a, name_b)
+
+
 def _utc_now_iso():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -208,13 +254,19 @@ def edit_curated_record(p, orig_identity, fields):
 
 def dedupe_curated_speedhive_additions(p):
     """Remove curated rows that duplicate an already-curated (class, lap
-    time, driver) -- same real record, just computed with a different date
-    than the pre-existing entry (see run_sync_and_diff's identity match,
-    which used to include date and so treated these as new).
+    time, driver) record -- same real record, just computed with a
+    different date, lap-time format (e.g. curated "0:59.439" vs raw
+    announcer "59.439"), or missing middle name/initial than the
+    pre-existing entry (see run_sync_and_diff's identity match, which used
+    to compare date/lap-time/driver-name as exact strings and so treated
+    these as new -- see also NEXT_SESSION_PLAN.md item 1).
 
-    Only removes a `source == "speedhive"` row when a pre-existing
-    (non-"speedhive") row already covers the same (class, lapTime,
-    driverName); the pre-existing row always wins and is kept as-is. Groups
+    Rows are bucketed by class (already resolved through the org's alias
+    map by this point, so exact class equality is fine) and compared
+    pairwise within each bucket via records_match_normalized. Only a
+    `source == "speedhive"` row is ever removed, and only when a
+    pre-existing (non-"speedhive") row in the same match-group already
+    covers it; the pre-existing row always wins and is kept as-is. Groups
     where every entry is pre-existing are left untouched -- that's a
     separate, longer-standing data question, not this specific bug.
 
@@ -223,19 +275,33 @@ def dedupe_curated_speedhive_additions(p):
     curated = load_curated(p)
     records = curated.get("records", [])
 
-    groups = {}
+    by_class = defaultdict(list)
     for r in records:
-        key = (r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"))
-        groups.setdefault(key, []).append(r)
+        by_class[normalize_identity_part(r.get("classAbbreviation"))].append(r)
 
     to_remove = []
-    for rows in groups.values():
-        if len(rows) < 2:
-            continue
-        pre_existing = [r for r in rows if r.get("source") != "speedhive"]
-        added_today = [r for r in rows if r.get("source") == "speedhive"]
-        if pre_existing and added_today:
-            to_remove.extend(added_today)
+    for rows in by_class.values():
+        assigned = [False] * len(rows)
+        for i in range(len(rows)):
+            if assigned[i]:
+                continue
+            group = [rows[i]]
+            assigned[i] = True
+            for j in range(i + 1, len(rows)):
+                if assigned[j]:
+                    continue
+                if records_match_normalized(
+                    rows[i].get("classAbbreviation"), rows[i].get("lapTime"), rows[i].get("driverName"),
+                    rows[j].get("classAbbreviation"), rows[j].get("lapTime"), rows[j].get("driverName"),
+                ):
+                    group.append(rows[j])
+                    assigned[j] = True
+            if len(group) < 2:
+                continue
+            pre_existing = [r for r in group if r.get("source") != "speedhive"]
+            added_via_speedhive = [r for r in group if r.get("source") == "speedhive"]
+            if pre_existing and added_via_speedhive:
+                to_remove.extend(added_via_speedhive)
 
     if to_remove:
         remove_ids = {id(r) for r in to_remove}
@@ -539,6 +605,23 @@ def run_sync_and_diff(org_id, storage, track_records_root, progress_cb=None, par
         for r in rejected_rows
     }
 
+    # Fuzzy fallback index (class -> [(lapTime, driverName), ...]), consulted
+    # only when the fast exact-match ldc sets above miss. Catches the same
+    # real record surfacing again under a different lap-time format (e.g.
+    # "0:59.439" vs "59.439") or a missing middle name/initial, which would
+    # otherwise get proposed as a false "new record" candidate. Grows as
+    # candidates are accepted below so duplicates within the same scan are
+    # also caught. See NEXT_SESSION_PLAN.md item 1.
+    fuzzy_index = defaultdict(list)
+    for r in curated.get("records", []):
+        fuzzy_index[normalize_identity_part(r.get("classAbbreviation"))].append(
+            (r.get("lapTime"), r.get("driverName"))
+        )
+    for r in rejected_rows:
+        fuzzy_index[normalize_identity_part(r.get("classAbbreviation"))].append(
+            (r.get("lapTime"), r.get("driverName"))
+        )
+
     auto_rejected = []
     seen_flagged_keys = set()
     candidates = []
@@ -597,7 +680,16 @@ def run_sync_and_diff(org_id, storage, track_records_root, progress_cb=None, par
         ldc = make_ldc(resolved, proposed["lapTime"], proposed["driverName"])
         if ldc in curated_ldc or ldc in rejected_ldc or ldc in seen_candidate_ldc:
             continue
+
+        cls_key = normalize_identity_part(resolved)
+        if any(
+            lap_times_match(proposed["lapTime"], other_lap) and driver_names_match(proposed["driverName"], other_name)
+            for other_lap, other_name in fuzzy_index[cls_key]
+        ):
+            continue
+
         seen_candidate_ldc.add(ldc)
+        fuzzy_index[cls_key].append((proposed["lapTime"], proposed["driverName"]))
 
         current = curated_fastest.get(resolved)
         current_public = None

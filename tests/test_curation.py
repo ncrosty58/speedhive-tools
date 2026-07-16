@@ -140,3 +140,88 @@ def test_delete_curated_record_normalization(tmp_path):
     raw_ldc_2 = curation.make_ldc("SM", "1:22.456", "john doe")
     assert raw_ldc_2 in rejected_ldc
 
+
+def test_lap_times_match_tolerates_format_and_rounding():
+    # curated "0:59.439" vs raw announcer "59.439" (no leading "0:")
+    assert curation.lap_times_match("0:59.439", "59.439") is True
+    # hand-transcription rounding, within the 0.01s tolerance
+    assert curation.lap_times_match("1:06.897", "1:06.896") is True
+    # genuinely different times must not match
+    assert curation.lap_times_match("1:11.501", "1:12.190") is False
+    # unparseable input never matches
+    assert curation.lap_times_match("not-a-time", "1:06.896") is False
+    assert curation.lap_times_match(None, "1:06.896") is False
+
+
+def test_driver_names_match_tolerates_missing_middle_name():
+    assert curation.driver_names_match("Andrew Abbott", "Andrew Thomas Abbott") is True
+    assert curation.driver_names_match("Andrew Abbott", "Andrew T Abbott") is True
+    # exact match (post-normalization) still matches
+    assert curation.driver_names_match("john doe", "John Doe") is True
+    # different first or last name must not match
+    assert curation.driver_names_match("Steve Ives", "Steven Ives") is False
+    assert curation.driver_names_match("Andrew Abbott", "Andrew Smith") is False
+    # empty/missing names never match
+    assert curation.driver_names_match("", "Andrew Abbott") is False
+    assert curation.driver_names_match(None, None) is False
+
+
+def test_records_match_normalized_requires_exact_class():
+    assert curation.records_match_normalized(
+        "FV", "1:13.101", "Andrew Abbott",
+        "FV", "1:13.099", "Andrew Thomas Abbott",
+    ) is True
+    # same lap/driver but a different class is not the same record
+    assert curation.records_match_normalized(
+        "FV", "1:13.101", "Andrew Abbott",
+        "FP", "1:13.101", "Andrew Abbott",
+    ) is False
+
+
+def test_dedupe_curated_speedhive_additions_catches_format_variants(tmp_path):
+    """The exact-string dedupe historically missed duplicates that differ
+    only in lap-time format or a middle name/initial -- see
+    NEXT_SESSION_PLAN.md item 1. Covers both the original exact-match case
+    and the newer normalized-tolerance case in one pass."""
+    p = curation.paths_for_org(tmp_path, 999)
+    p["dir"].mkdir(parents=True)
+
+    curated_doc = {
+        "date": "2026-07-16",
+        "records": [
+            # Exact-match duplicate (different date only) -- the original bug.
+            {"classAbbreviation": "GT3", "lapTime": "1:11.501", "driverName": "Paul Young",
+             "marque": "Ford Probe", "date": "2020-06-28", "source": "manual"},
+            {"classAbbreviation": "GT3", "lapTime": "1:11.501", "driverName": "Paul Young",
+             "marque": None, "date": "2020-06-27", "source": "speedhive"},
+
+            # Lap-time-format duplicate: "0:59.439" (curated) vs "59.439" (speedhive raw).
+            {"classAbbreviation": "P1", "lapTime": "0:59.439", "driverName": "Jonathan Finstrom",
+             "marque": "Staudacher S08", "date": "2021-05-27", "source": "manual"},
+            {"classAbbreviation": "P1", "lapTime": "59.439", "driverName": "Jonathan Finstrom",
+             "marque": None, "date": "2021-05-27", "source": "speedhive"},
+
+            # Middle-name duplicate: curated omits the middle name the raw announcement has.
+            {"classAbbreviation": "FV", "lapTime": "1:12.563", "driverName": "Andrew Abbott",
+             "marque": "Vector AM-1", "date": "2019-08-04", "source": "manual"},
+            {"classAbbreviation": "FV", "lapTime": "1:12.563", "driverName": "Andrew Thomas Abbott",
+             "marque": None, "date": "2019-08-03", "source": "speedhive"},
+
+            # Not a duplicate -- different class -- must survive untouched.
+            {"classAbbreviation": "FP", "lapTime": "1:12.563", "driverName": "Andrew Abbott",
+             "marque": None, "date": "2019-08-05", "source": "speedhive"},
+        ],
+    }
+    curation.save_curated(p, curated_doc)
+
+    result = curation.dedupe_curated_speedhive_additions(p)
+    assert result["removed"] == 3
+    assert {r["classAbbreviation"] for r in result["removed_records"]} == {"GT3", "P1", "FV"}
+    assert all(r["source"] == "speedhive" for r in result["removed_records"])
+
+    remaining = curation.load_curated(p)["records"]
+    assert len(remaining) == 4
+    assert {(r["classAbbreviation"], r["source"]) for r in remaining} == {
+        ("GT3", "manual"), ("P1", "manual"), ("FV", "manual"), ("FP", "speedhive"),
+    }
+
