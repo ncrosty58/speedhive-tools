@@ -141,6 +141,100 @@ def test_delete_curated_record_normalization(tmp_path):
     assert raw_ldc_2 in rejected_ldc
 
 
+def _seed_single_curated_record(tmp_path, org_id=999, **overrides):
+    p = curation.paths_for_org(tmp_path, org_id)
+    p["dir"].mkdir(parents=True)
+    record = {
+        "classAbbreviation": "FA",
+        "lapTime": "1:02.500",
+        "driverName": "Jane Doe",
+        "marque": "Swift",
+        "date": "2026-07-01",
+        "source": "speedhive",
+    }
+    record.update(overrides)
+    curation.save_curated(p, {"date": "2026-07-01", "records": [record]})
+    return p
+
+
+def test_edit_curated_record_appends_edit_history_entry(tmp_path):
+    p = _seed_single_curated_record(tmp_path)
+    identity = ("FA", "1:02.500", "Jane Doe", "2026-07-01")
+
+    updated = curation.edit_curated_record(p, identity, {
+        "classAbbreviation": "FA",
+        "lapTime": "1:01.861",
+        "driverName": "Jane Doe",
+        "marque": "Swift",
+        "date": "2026-07-01",
+    })
+
+    assert updated["modified"] is True
+    assert len(updated["edit_history"]) == 1
+    entry = updated["edit_history"][0]
+    assert entry["fields"] == {"lapTime": {"from": "1:02.500", "to": "1:01.861"}}
+    assert entry["changed_at"] == updated["modified_at"]
+
+
+def test_edit_curated_record_sequential_edits_are_not_cumulative(tmp_path):
+    p = _seed_single_curated_record(tmp_path)
+    identity = ("FA", "1:02.500", "Jane Doe", "2026-07-01")
+
+    first = curation.edit_curated_record(p, identity, {
+        "classAbbreviation": "FA",
+        "lapTime": "1:01.861",
+        "driverName": "Jane Doe",
+        "marque": "Swift",
+        "date": "2026-07-01",
+    })
+    new_identity = ("FA", "1:01.861", "Jane Doe", "2026-07-01")
+    second = curation.edit_curated_record(p, new_identity, {
+        "classAbbreviation": "FA",
+        "lapTime": "1:01.861",
+        "driverName": "John Doe",
+        "marque": "Swift",
+        "date": "2026-07-01",
+    })
+
+    assert first["classAbbreviation"] == second["classAbbreviation"]  # same logical record, matched again by its new identity
+    history = second["edit_history"]
+    assert len(history) == 2
+    assert history[0]["fields"] == {"lapTime": {"from": "1:02.500", "to": "1:01.861"}}
+    assert history[1]["fields"] == {"driverName": {"from": "Jane Doe", "to": "John Doe"}}
+
+
+def test_edit_curated_record_noop_edit_does_not_append_empty_entry(tmp_path):
+    p = _seed_single_curated_record(tmp_path)
+    identity = ("FA", "1:02.500", "Jane Doe", "2026-07-01")
+
+    updated = curation.edit_curated_record(p, identity, {
+        "classAbbreviation": "FA",
+        "lapTime": "1:02.500",
+        "driverName": "Jane Doe",
+        "marque": "Swift",
+        "date": "2026-07-01",
+    })
+
+    assert updated["modified"] is True  # unconditional flag refresh is unchanged
+    assert "edit_history" not in updated
+
+
+def test_edit_curated_record_manual_source_never_gets_modified_or_history(tmp_path):
+    p = _seed_single_curated_record(tmp_path, source="manual")
+    identity = ("FA", "1:02.500", "Jane Doe", "2026-07-01")
+
+    updated = curation.edit_curated_record(p, identity, {
+        "classAbbreviation": "FA",
+        "lapTime": "1:01.861",
+        "driverName": "Jane Doe",
+        "marque": "Swift",
+        "date": "2026-07-01",
+    })
+
+    assert "modified" not in updated
+    assert "edit_history" not in updated
+
+
 def test_lap_times_match_tolerates_format_and_rounding():
     # curated "0:59.439" vs raw announcer "59.439" (no leading "0:")
     assert curation.lap_times_match("0:59.439", "59.439") is True

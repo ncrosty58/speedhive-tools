@@ -223,7 +223,9 @@ def edit_curated_record(p, orig_identity, fields):
 
     Speedhive-sourced records get flagged `modified` so it's visible a human
     has since corrected announcer-derived data; manual records don't need the
-    flag, they're already fully human-owned.
+    flag, they're already fully human-owned. Each edit that actually changes
+    a field also appends an entry to `edit_history`, so the full sequence of
+    human corrections is visible later, not just the fact that one happened.
 
     Returns the updated record, or None if not found / a required field is missing.
     """
@@ -242,10 +244,21 @@ def edit_curated_record(p, orig_identity, fields):
     if target is None:
         return None
 
+    changed_fields = {
+        field: {"from": target.get(field), "to": new_value}
+        for field, new_value in updated.items()
+        if target.get(field) != new_value
+    }
+
     target.update(updated)
     if target.get("source") != "manual":
         target["modified"] = True
         target["modified_at"] = _utc_now_iso()
+        if changed_fields:
+            target.setdefault("edit_history", []).append({
+                "changed_at": target["modified_at"],
+                "fields": changed_fields,
+            })
 
     curated["date"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     save_curated(p, curated)
