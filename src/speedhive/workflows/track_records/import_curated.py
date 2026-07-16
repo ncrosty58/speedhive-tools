@@ -12,7 +12,7 @@ from speedhive.stores.track_records import load_curated, paths_for_org, save_cur
 
 
 _TRACK_RECORD_REQUIRED_FIELDS = ("classAbbreviation", "lapTime", "driverName", "date")
-_TRACK_RECORD_OPTIONAL_FIELDS = ("marque", "addedAt")
+_TRACK_RECORD_OPTIONAL_FIELDS = ("marque", "addedAt", "source")
 
 
 def _validate_import_line(obj: Dict[str, Any], lineno: int) -> None:
@@ -57,7 +57,9 @@ def import_curated_track_records_ndjson(
         for field in _TRACK_RECORD_OPTIONAL_FIELDS:
             if obj.get(field) is not None:
                 record[field] = obj[field]
-        # Bulk imports should not mark these records as newly approved.
+        # Preserve an existing `source` tag (e.g. re-importing a prior export);
+        # otherwise a hand-built/bulk import isn't from the scan+review pipeline.
+        record.setdefault("source", "manual")
         incoming.append(record)
 
     if not incoming:
