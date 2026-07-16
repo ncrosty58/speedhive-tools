@@ -110,8 +110,27 @@ def build_curated_fastest_index(curated):
     return fastest
 
 
+def normalize_identity_part(val):
+    if val is None:
+        return ""
+    return str(val).strip().upper()
+
+
+def make_ldc(cls, lap, driver):
+    return (
+        normalize_identity_part(cls),
+        normalize_identity_part(lap),
+        normalize_identity_part(driver)
+    )
+
+
 def rejected_key(classAbbreviation, lapTime, driverName, date):
-    return (classAbbreviation, lapTime, driverName, date)
+    return (
+        normalize_identity_part(classAbbreviation),
+        normalize_identity_part(lapTime),
+        normalize_identity_part(driverName),
+        normalize_identity_part(date)
+    )
 
 
 def _utc_now_iso():
@@ -119,9 +138,10 @@ def _utc_now_iso():
 
 
 def _find_by_identity(records, identity):
+    norm_identity = tuple(normalize_identity_part(x) for x in identity)
     return next(
         (r for r in records
-         if rejected_key(r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"), r.get("date")) == identity),
+         if rejected_key(r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"), r.get("date")) == norm_identity),
         None,
     )
 
@@ -511,11 +531,11 @@ def run_sync_and_diff(org_id, storage, track_records_root, progress_cb=None, par
     # older imports used the latter), so requiring an exact date match let the
     # same real record look "new" and get proposed as a duplicate.
     curated_ldc = {
-        (r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"))
+        make_ldc(r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"))
         for r in curated.get("records", [])
     }
     rejected_ldc = {
-        (r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"))
+        make_ldc(r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"))
         for r in rejected_rows
     }
 
@@ -574,7 +594,7 @@ def run_sync_and_diff(org_id, storage, track_records_root, progress_cb=None, par
             "marque": row.get("marque"),
             "date": date_str,
         }
-        ldc = (resolved, proposed["lapTime"], proposed["driverName"])
+        ldc = make_ldc(resolved, proposed["lapTime"], proposed["driverName"])
         if ldc in curated_ldc or ldc in rejected_ldc or ldc in seen_candidate_ldc:
             continue
         seen_candidate_ldc.add(ldc)

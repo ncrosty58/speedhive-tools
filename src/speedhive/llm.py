@@ -11,28 +11,48 @@ invocation included) resolves the same value.
 """
 import json
 import os
+from pathlib import Path
 from typing import Any, List, Optional
 
 from google import genai
 from google.genai import types
 
-DEFAULT_MODEL = "gemini-2.5-flash"
-
-
 def get_gemini_api_key(org_id: Optional[int] = None) -> Optional[str]:
     if org_id is not None:
+        web_data_dir = os.environ.get("SPEEDHIVE_WEB_DATA_DIR", "./web_data")
+        config_path = Path(web_data_dir) / "track_records" / str(org_id) / "config.json"
+        if config_path.exists():
+            try:
+                with open(config_path) as f:
+                    config = json.load(f)
+                override = config.get("overrides", {}).get("GEMINI_API_KEY")
+                if override:
+                    return override
+            except Exception:
+                pass
         scoped = os.environ.get(f"GEMINI_API_KEY_{org_id}")
         if scoped:
             return scoped
     return os.environ.get("GEMINI_API_KEY")
 
 
-def get_gemini_model(org_id: Optional[int] = None) -> str:
+def get_gemini_model(org_id: Optional[int] = None) -> Optional[str]:
     if org_id is not None:
+        web_data_dir = os.environ.get("SPEEDHIVE_WEB_DATA_DIR", "./web_data")
+        config_path = Path(web_data_dir) / "track_records" / str(org_id) / "config.json"
+        if config_path.exists():
+            try:
+                with open(config_path) as f:
+                    config = json.load(f)
+                override = config.get("overrides", {}).get("GEMINI_MODEL")
+                if override:
+                    return override
+            except Exception:
+                pass
         scoped = os.environ.get(f"GEMINI_MODEL_{org_id}")
         if scoped:
             return scoped
-    return os.environ.get("GEMINI_MODEL") or DEFAULT_MODEL
+    return os.environ.get("GEMINI_MODEL")
 
 
 def call_gemini_json(
@@ -47,7 +67,7 @@ def call_gemini_json(
 ) -> Any:
     """Call Gemini and return the parsed JSON response.
 
-    Raises RuntimeError if no API key is configured, or the underlying
+    Raises RuntimeError if no API key or model is configured, or the underlying
     google-genai exception if the call itself fails.
     """
     key = api_key or get_gemini_api_key(org_id)
@@ -55,6 +75,13 @@ def call_gemini_json(
         suffix = f" (or GEMINI_API_KEY_{org_id})" if org_id is not None else ""
         raise RuntimeError(
             f"No Gemini API key configured. Set the GEMINI_API_KEY{suffix} environment variable."
+        )
+
+    model_name = model or get_gemini_model(org_id)
+    if not model_name:
+        suffix = f" (or GEMINI_MODEL_{org_id})" if org_id is not None else ""
+        raise RuntimeError(
+            f"No Gemini model configured. Set the GEMINI_MODEL{suffix} environment variable."
         )
 
     http_options = types.HttpOptions(timeout=timeout_ms) if timeout_ms else None
@@ -69,7 +96,7 @@ def call_gemini_json(
         config_kwargs["max_output_tokens"] = max_output_tokens
 
     response = client.models.generate_content(
-        model=model or get_gemini_model(org_id),
+        model=model_name,
         contents=prompt,
         config=types.GenerateContentConfig(**config_kwargs),
     )

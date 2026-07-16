@@ -84,3 +84,59 @@ def test_normalize_classification_aliases_and_review():
     assert curation.normalize_classification("Spec Miata", alias_map) == ("ok", "SM")
     assert curation.normalize_classification("f5", alias_map) == ("ambiguous", None)
     assert curation.normalize_classification("IT7", alias_map) == ("ok", "IT7")
+
+
+def test_delete_curated_record_normalization(tmp_path):
+    p = curation.paths_for_org(tmp_path, 999)
+    p["dir"].mkdir(parents=True)
+
+    # 1. Populate curated with a record that has None/""/mixed-case driverName
+    curated_doc = {
+        "date": "2026-07-16",
+        "records": [
+            {
+                "classAbbreviation": "fa",
+                "lapTime": "1:01.861",
+                "driverName": None,
+                "marque": "Swift",
+                "date": "2026-07-16",
+                "source": "speedhive"
+            },
+            {
+                "classAbbreviation": "SM",
+                "lapTime": "1:22.456",
+                "driverName": "John Doe",
+                "marque": "Mazda",
+                "date": "2026-07-16",
+                "source": "speedhive"
+            }
+        ]
+    }
+    curation.save_curated(p, curated_doc)
+
+    # Delete first record using identity with empty string "" for driverName (how UI form behaves)
+    identity_1 = ("FA", "1:01.861", "", "2026-07-16")
+    res_1 = curation.delete_curated_record(p, identity_1)
+    assert res_1["found"] is True
+    assert res_1["permanent"] is False
+
+    # Delete second record with mismatched case for driverName
+    identity_2 = ("sm", "1:22.456", "JOHN DOE", "2026-07-16")
+    res_2 = curation.delete_curated_record(p, identity_2)
+    assert res_2["found"] is True
+
+    # 2. Check rejected contains both
+    rejected = curation.load_rejected(p).get("rejected", [])
+    assert len(rejected) == 2
+
+    # 3. Verify make_ldc behaves as expected for checks
+    rejected_ldc = {
+        curation.make_ldc(r.get("classAbbreviation"), r.get("lapTime"), r.get("driverName"))
+        for r in rejected
+    }
+    raw_ldc_1 = curation.make_ldc("FA", "1:01.861", None)
+    assert raw_ldc_1 in rejected_ldc
+
+    raw_ldc_2 = curation.make_ldc("SM", "1:22.456", "john doe")
+    assert raw_ldc_2 in rejected_ldc
+
