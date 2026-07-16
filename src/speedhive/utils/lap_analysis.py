@@ -100,6 +100,33 @@ def normalize_name(name: str) -> str:
     return s.strip()
 
 
+def normalize_classification(raw_token, alias_map):
+    """Resolve a raw car-class token against an org's curated alias map.
+
+    Returns (status, resolved_abbreviation). status: 'ok' | 'ambiguous'.
+
+    No canonical whitelist is required -- any token is accepted as-is (upper/
+    trimmed) unless it's in this org's `always_review` list (for tokens that
+    are genuinely ambiguous, e.g. a combined class group that splits into
+    multiple record-keeping classes). Shared by track-record curation (the
+    human review step is the real safety net for typos/unexpected tokens,
+    not a whitelist) and the class-based stats analyzers (analyze_class_pace),
+    so both group car classes the same way from one org-maintained alias map.
+    """
+    if not raw_token:
+        return "ambiguous", None
+    token = raw_token.strip().upper()
+
+    if token in {t.strip().upper() for t in alias_map.get("always_review", [])}:
+        return "ambiguous", None
+
+    aliases = {k.strip().upper(): v for k, v in alias_map.get("aliases", {}).items()}
+    if token in aliases:
+        token = aliases[token].strip().upper()
+
+    return "ok", token
+
+
 def _build_pos_name_map(session_raw: dict) -> Dict[int, str]:
     mapping = {}
     if not isinstance(session_raw, dict):

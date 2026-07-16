@@ -6,7 +6,12 @@ from collections import defaultdict
 from typing import Dict, List, Optional
 
 from speedhive.analyzers.analyze_consistency import matches_session_type
-from speedhive.utils.lap_analysis import first_non_empty, normalize_name, session_year
+from speedhive.utils.lap_analysis import (
+    first_non_empty,
+    normalize_classification,
+    normalize_name,
+    session_year,
+)
 
 
 def _build_pos_class_map(results_rows: List[Dict]) -> Dict[int, str]:
@@ -43,12 +48,32 @@ def _class_group_key(class_name: str) -> str:
 
     `resultClass` is free text with a long tail of one-off spelling/spacing
     variants (e.g. "FV" vs "1 FV" vs "1  FV"); this only folds together exact
-    case/whitespace differences, not genuinely different tokens -- real
-    alias resolution (typo-level) is the org's curated `class_alias_map.json`
-    territory (see speedhive.workflows.track_records.curation), out of scope
-    here.
+    case/whitespace differences, not genuinely different tokens. Real alias
+    resolution (e.g. "Spec Miata" == "SM") is layered on top by
+    _resolve_class_group_key, below.
     """
     return re.sub(r"\s+", " ", class_name.strip()).upper()
+
+
+def _resolve_class_group_key(class_name: str, alias_map: Optional[Dict]) -> str:
+    """Grouping key for a raw class label, folding it through the org's
+    curated class_alias_map.json (the same file and resolution logic track-
+    record curation uses -- see normalize_classification) so e.g. "Spec
+    Miata" and "SM" group together consistently everywhere, not just in
+    curated track records.
+
+    Ambiguous tokens (the alias map's `always_review` list) are left
+    grouped by their own folded spelling rather than merged with anything
+    -- matches curation's stance that they need a human to disambiguate,
+    not a silent guess.
+
+    Falls back to plain whitespace/case folding when no alias_map is given.
+    """
+    folded = _class_group_key(class_name)
+    if not alias_map:
+        return folded
+    status, resolved = normalize_classification(folded, alias_map)
+    return resolved if status == "ok" and resolved else folded
 
 
 def compute_avg_lap_by_class_year(
@@ -58,6 +83,7 @@ def compute_avg_lap_by_class_year(
     session_types: Optional[List[str]] = None,
     min_total_laps: int = 15,
     max_classes: int = 20,
+    alias_map: Optional[Dict] = None,
 ) -> Dict:
     """Average filtered lap time per (car class, event year), pooled across
     every driver-session entry in `enriched` whose session matches one of
@@ -73,6 +99,12 @@ def compute_avg_lap_by_class_year(
     drops classes with too little data to be a meaningful trend line, and
     `max_classes` caps the chart to the highest-volume classes (by total lap
     count) so the legend stays readable. Pass max_classes=None for no cap.
+
+    `alias_map` (the org's class_alias_map.json, e.g. via
+    speedhive.stores.track_records) folds genuinely different-looking class
+    labels that are the same class (e.g. "Spec Miata" == "SM") together, the
+    same way track-record curation already does -- see
+    _resolve_class_group_key. Omit for plain whitespace/case-only grouping.
 
     Returns {"years": [int, ...], "classes": [str, ...],
     "series": {class_name: [avg_seconds_or_None, ...]},
@@ -107,7 +139,7 @@ def compute_avg_lap_by_class_year(
         if not filtered_laps:
             continue
 
-        group_key = _class_group_key(raw_class)
+        group_key = _resolve_class_group_key(raw_class, alias_map)
         pooled[group_key][year].extend(filtered_laps)
         label_counts[group_key][raw_class] += len(filtered_laps)
 
@@ -202,6 +234,7 @@ def compute_participation_by_class_year(
     results_map: Dict[str, List[Dict]],
     session_types: Optional[List[str]] = None,
     max_classes: int = 10,
+    alias_map: Optional[Dict] = None,
 ) -> Dict:
     """Distinct-driver headcount per (car class, year) -- ranks classes by
     their average annual participation, and supplies each class's own
@@ -211,6 +244,11 @@ def compute_participation_by_class_year(
     with zero is excluded from the average rather than counted as a 0 --
     otherwise a class that started recently or folded early would look
     weaker than one that merely ran every year in the dataset.
+
+    `alias_map` (the org's class_alias_map.json) folds genuinely
+    different-looking labels that are the same class (e.g. "Spec Miata" ==
+    "SM") together -- see _resolve_class_group_key. Omit for plain
+    whitespace/case-only grouping.
 
     Returns {"classes": [str, ...], "avg_participants": [float, ...],
     "years_by_class": {class_name: [int, ...]},
@@ -243,7 +281,7 @@ def compute_participation_by_class_year(
         if not raw_class or year is None or not name:
             continue
 
-        group_key = _class_group_key(raw_class)
+        group_key = _resolve_class_group_key(raw_class, alias_map)
         drivers_by_class_year[group_key][year].add(normalize_name(name))
         label_counts[group_key][raw_class] += 1
 

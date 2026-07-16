@@ -119,3 +119,60 @@ def test_participation_by_class_ranked_and_capped():
     result = compute_participation_by_class_year(enriched, session_map, results_map, max_classes=1)
     assert result["classes"] == ["GT"]
     assert result["avg_participants"] == [2.0]
+
+
+def test_participation_by_class_merges_aliases():
+    # "Spec Miata" and "SM" are the same class under the org's alias map --
+    # without it they'd be two separate, smaller-looking classes.
+    enriched = {
+        "session1_pos1": _enriched_entry("A"),
+        "session1_pos2": _enriched_entry("B"),
+        "session2_pos1": _enriched_entry("C"),
+    }
+    session_map = {
+        "1": {"name": "Race 1", "type": "race", "startTime": "2023-05-01"},
+        "2": {"name": "Race 2", "type": "race", "startTime": "2024-05-01"},
+    }
+    results_map = {
+        "1": [_result_row(1, "Spec Miata"), _result_row(2, "Spec Miata")],
+        "2": [_result_row(1, "SM")],
+    }
+    alias_map = {"aliases": {"SPEC MIATA": "SM"}, "always_review": []}
+
+    without_alias = compute_participation_by_class_year(enriched, session_map, results_map, max_classes=None)
+    assert sorted(without_alias["classes"]) == ["SM", "Spec Miata"]
+
+    with_alias = compute_participation_by_class_year(
+        enriched, session_map, results_map, max_classes=None, alias_map=alias_map
+    )
+    # Merged into one group -- "Spec Miata" wins as the display label since
+    # it's the more common raw spelling (2 entries vs SM's 1), same
+    # frequency-based heuristic used for whitespace/case-only variants.
+    assert with_alias["classes"] == ["Spec Miata"]
+    assert with_alias["avg_participants"] == [1.5]  # (2 + 1) / 2
+    assert with_alias["years_by_class"]["Spec Miata"] == [2023, 2024]
+    assert with_alias["participants_by_class"]["Spec Miata"] == [2, 1]
+
+
+def test_participation_by_class_always_review_tokens_stay_ungrouped():
+    enriched = {
+        "session1_pos1": _enriched_entry("A"),
+        "session2_pos1": _enriched_entry("B"),
+    }
+    session_map = {
+        "1": {"name": "Race 1", "type": "race", "startTime": "2023-05-01"},
+        "2": {"name": "Race 2", "type": "race", "startTime": "2024-05-01"},
+    }
+    results_map = {
+        "1": [_result_row(1, "F5")],
+        "2": [_result_row(1, "F5")],
+    }
+    alias_map = {"aliases": {}, "always_review": ["F5"]}
+
+    result = compute_participation_by_class_year(
+        enriched, session_map, results_map, max_classes=None, alias_map=alias_map
+    )
+    # Still grouped by its own folded spelling (not dropped, not merged with
+    # anything else) -- ambiguous just means "don't guess an alias for it."
+    assert result["classes"] == ["F5"]
+    assert result["avg_participants"] == [1.0]  # 1 driver/year, both years

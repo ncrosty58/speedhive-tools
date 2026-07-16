@@ -23,7 +23,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from speedhive.ndjson import save_ndjson
-from speedhive.utils.lap_analysis import normalize_name
+from speedhive.utils.lap_analysis import normalize_classification, normalize_name
 from speedhive.workflows.refresh_org_cache import refresh_org_cache
 from speedhive.stores.track_records import (
     load_candidates,
@@ -61,29 +61,6 @@ def lap_time_to_seconds(lap_time):
         return float(parts[0])
     except ValueError:
         return None
-
-
-def normalize_classification(raw_token, alias_map):
-    """Returns (status, resolved_abbreviation). status: 'ok' | 'ambiguous'.
-
-    No canonical whitelist is required -- any token is accepted as-is (upper/
-    trimmed) unless it's in this org's `always_review` list (for tokens that
-    are genuinely ambiguous, e.g. a combined class group that splits into
-    multiple record-keeping classes). The human review step is the real
-    safety net for typos/unexpected tokens, not a whitelist.
-    """
-    if not raw_token:
-        return "ambiguous", None
-    token = raw_token.strip().upper()
-
-    if token in {t.strip().upper() for t in alias_map.get("always_review", [])}:
-        return "ambiguous", None
-
-    aliases = {k.strip().upper(): v for k, v in alias_map.get("aliases", {}).items()}
-    if token in aliases:
-        token = aliases[token].strip().upper()
-
-    return "ok", token
 
 
 def notify_gotify(title, message):
