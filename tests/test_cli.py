@@ -195,3 +195,54 @@ def test_import_curated_track_records_creates_curated_file(tmp_path):
             pass
 
     assert (track_records_root / "30476" / "track_records" / "curated.ndjson").exists()
+
+
+@patch("speedhive.cli.main._configure_org")
+def test_configure_command_dispatches(mock_configure):
+    with patch("sys.argv", ["speedhive", "configure", "--org", "30476"]):
+        try:
+            main()
+        except SystemExit:
+            pass
+    assert mock_configure.called
+
+
+def test_configure_org_wizard_writes_file(tmp_path, monkeypatch):
+    import json as jsonlib
+    from speedhive.cli.main import _configure_org
+    
+    # Mock data directory
+    monkeypatch.setenv("SPEEDHIVE_DATA_DIR", str(tmp_path))
+    
+    class Args:
+        org = 99999
+        
+    # Mock inputs:
+    # 1. Enable notifications -> Enter (Yes)
+    # 2. Enable notification deduplication -> Enter (Yes)
+    # 3. Announcer parser engine -> Enter (regex)
+    # 4. Minimum laps -> "15"
+    # 5. Resend API Key -> "re_test_key"
+    # 6. Notification 'From' -> "test@domain.com"
+    # 7. Notification 'To' -> "recv@domain.com"
+    inputs = ["", "", "", "15", "re_test_key", "test@domain.com", "recv@domain.com"]
+    input_iter = iter(inputs)
+    
+    with patch("builtins.input", lambda prompt: next(input_iter)):
+        _configure_org(Args())
+        
+    settings_file = tmp_path / "orgs" / "99999" / "settings.json"
+    assert settings_file.exists()
+    
+    with open(settings_file) as f:
+        data = jsonlib.load(f)
+        
+    assert data["notifications"]["enabled"] is True
+    assert data["notifications"]["de_duplicate"] is True
+    assert data["parsing"]["engine"] == "regex"
+    assert data["stats"]["min_laps"] == 15
+    assert data["overrides"]["RESEND_API_KEY"] == "re_test_key"
+    assert data["overrides"]["NOTIFICATION_FROM_EMAIL"] == "test@domain.com"
+    assert data["overrides"]["NOTIFICATION_TO_EMAILS"] == "recv@domain.com"
+
+

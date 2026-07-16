@@ -19,12 +19,8 @@ from google.genai import types
 
 def get_gemini_api_key(org_id: Optional[int] = None) -> Optional[str]:
     if org_id is not None:
-        web_data_dir = (
-            os.environ.get("SPEEDHIVE_DATA_DIR") or
-            os.environ.get("SPEEDHIVE_WEB_DATA_DIR") or
-            "./data"
-        )
-        config_path = Path(web_data_dir) / "orgs" / str(org_id) / "settings.json"
+        data_dir = os.environ.get("SPEEDHIVE_DATA_DIR", "./data")
+        config_path = Path(data_dir) / "orgs" / str(org_id) / "settings.json"
         if config_path.exists():
             try:
                 with open(config_path) as f:
@@ -42,12 +38,8 @@ def get_gemini_api_key(org_id: Optional[int] = None) -> Optional[str]:
 
 def get_gemini_model(org_id: Optional[int] = None) -> Optional[str]:
     if org_id is not None:
-        web_data_dir = (
-            os.environ.get("SPEEDHIVE_DATA_DIR") or
-            os.environ.get("SPEEDHIVE_WEB_DATA_DIR") or
-            "./data"
-        )
-        config_path = Path(web_data_dir) / "orgs" / str(org_id) / "settings.json"
+        data_dir = os.environ.get("SPEEDHIVE_DATA_DIR", "./data")
+        config_path = Path(data_dir) / "orgs" / str(org_id) / "settings.json"
         if config_path.exists():
             try:
                 with open(config_path) as f:

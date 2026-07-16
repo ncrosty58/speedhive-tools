@@ -14,7 +14,11 @@ from speedhive.wrapper import SpeedhiveClient
 
 
 def default_db_path() -> Path:
-    return Path(os.environ.get("SPEEDHIVE_DB_PATH", "./web_data/speedhive.db"))
+    db_path = os.environ.get("SPEEDHIVE_DB_PATH")
+    if db_path:
+        return Path(db_path)
+    data_dir = os.environ.get("SPEEDHIVE_DATA_DIR", "./data")
+    return Path(data_dir) / "speedhive.db"
 
 
 def _run_module_as_main(module_name: str, args):
@@ -191,14 +195,149 @@ def _export_db_dump(args):
     return _run_module_as_main("speedhive.exporters.export_db_dump", argv)
 
 
+def _configure_org(args):
+    # If org is not passed via CLI, prompt for it
+    org_id = args.org
+    if not org_id:
+        try:
+            val = input("Enter Organization ID: ").strip()
+            if not val:
+                print("Error: Organization ID is required.")
+                return 1
+            org_id = int(val)
+        except ValueError:
+            print("Error: Organization ID must be an integer.")
+            return 1
+
+    # Resolve data directory
+    data_dir = os.environ.get("SPEEDHIVE_DATA_DIR", "./data")
+    org_dir = Path(data_dir) / "orgs" / str(org_id)
+    settings_file = org_dir / "settings.json"
+
+    # Load existing config if available
+    config = {}
+    if settings_file.exists():
+        try:
+            with open(settings_file, "r") as f:
+                config = json.load(f)
+        except Exception:
+            pass
+
+    # Extract existing values
+    notifications = config.get("notifications", {})
+    notif_enabled_default = notifications.get("enabled", True)
+    notif_dedupe_default = notifications.get("de_duplicate", True)
+
+    parsing = config.get("parsing", {})
+    parser_default = parsing.get("engine", "regex")
+
+    stats = config.get("stats", {})
+    min_laps_default = stats.get("min_laps", 20)
+
+    overrides = config.get("overrides", {})
+    gemini_key_default = overrides.get("GEMINI_API_KEY", os.environ.get(f"GEMINI_API_KEY_{org_id}", os.environ.get("GEMINI_API_KEY", "")))
+    gemini_model_default = overrides.get("GEMINI_MODEL", os.environ.get(f"GEMINI_MODEL_{org_id}", os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")))
+    
+    resend_key_default = overrides.get("RESEND_API_KEY", os.environ.get("RESEND_API_KEY", ""))
+    from_email_default = overrides.get("NOTIFICATION_FROM_EMAIL", os.environ.get("NOTIFICATION_FROM_EMAIL", ""))
+    to_emails_default = overrides.get("NOTIFICATION_TO_EMAILS", os.environ.get("NOTIFICATION_TO_EMAILS", ""))
+
+    print(f"\n--- Configuring Organization {org_id} ---")
+    print(f"Configuration file will be saved to: {settings_file.resolve()}\n")
+
+    # Helper function for yes/no prompts
+    def prompt_bool(prompt_text, default_val):
+        default_str = "Y/n" if default_val else "y/N"
+        val = input(f"{prompt_text} [{default_str}]: ").strip().lower()
+        if not val:
+            return default_val
+        return val.startswith("y")
+
+    # Helper function for text prompts
+    def prompt_text(prompt_text, default_val, is_secret=False):
+        display_default = default_val
+        if is_secret and default_val:
+            display_default = "••••" + default_val[-4:] if len(default_val) > 4 else "••••"
+        
+        default_prompt = f" [{display_default}]" if default_val else ""
+        val = input(f"{prompt_text}{default_prompt}: ").strip()
+        if not val:
+            return default_val
+        return val
+
+    # Helper function for choice prompts
+    def prompt_choices(prompt_text, choices, default_val):
+        val = input(f"{prompt_text} ({'/'.join(choices)}) [{default_val}]: ").strip().lower()
+        if not val:
+            return default_val
+        if val in choices:
+            return val
+        print(f"Invalid choice '{val}'. Falling back to default '{default_val}'.")
+        return default_val
+
+    # Prompt user
+    notif_enabled = prompt_bool("Enable notifications", notif_enabled_default)
+    notif_dedupe = prompt_bool("Enable notification deduplication", notif_dedupe_default)
+    parser_engine = prompt_choices("Announcer parser engine", ["regex", "llm"], parser_default)
+    
+    gemini_key = ""
+    gemini_model = ""
+    if parser_engine == "llm":
+        gemini_key = prompt_text("Gemini API Key", gemini_key_default, is_secret=True)
+        gemini_model = prompt_text("Gemini Model", gemini_model_default)
+    
+    min_laps = 20
+    try:
+        min_laps_str = prompt_text("Minimum laps for consistency statistics", str(min_laps_default))
+        min_laps = int(min_laps_str)
+    except ValueError:
+        print("Invalid number for minimum laps. Using default.")
+        min_laps = min_laps_default
+
+    resend_key = prompt_text("Resend API Key", resend_key_default, is_secret=True)
+    from_email = prompt_text("Notification 'From' Email Address", from_email_default)
+    to_emails = prompt_text("Notification 'To' Email Addresses (comma separated)", to_emails_default)
+
+    # Save to settings.json
+    config["notifications"] = {"enabled": notif_enabled, "de_duplicate": notif_dedupe}
+    config["parsing"] = {"engine": parser_engine}
+    config["stats"] = {"min_laps": min_laps}
+
+    if "overrides" not in config:
+        config["overrides"] = {}
+
+    for key, val in [
+        ("GEMINI_API_KEY", gemini_key),
+        ("GEMINI_MODEL", gemini_model),
+        ("RESEND_API_KEY", resend_key),
+        ("NOTIFICATION_FROM_EMAIL", from_email),
+        ("NOTIFICATION_TO_EMAILS", to_emails),
+    ]:
+        if val:
+            config["overrides"][key] = val
+        else:
+            config["overrides"].pop(key, None)
+
+    if not config["overrides"]:
+        config.pop("overrides", None)
+
+    org_dir.mkdir(parents=True, exist_ok=True)
+    with open(settings_file, "w") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+    print(f"\nConfiguration saved successfully to {settings_file.name}!")
+    return 0
+
+
 def main():
     from dotenv import load_dotenv
     load_dotenv()
     # Per-org settings (GEMINI_API_KEY_<org>, RESEND_API_KEY_<org>, etc.) saved
-    # via speedhive-tools-ui's Settings UI live alongside its web_data dir,
+    # via speedhive-tools-ui's Settings UI live alongside its data dir,
     # not the top-level .env -- see app/env_config.py in that project.
-    web_data_dir = os.environ.get("SPEEDHIVE_WEB_DATA_DIR", "./web_data")
-    load_dotenv(os.path.join(web_data_dir, "org_settings.env"))
+    data_dir = os.environ.get("SPEEDHIVE_DATA_DIR", "./data")
+    load_dotenv(os.path.join(data_dir, "org_settings.env"))
 
     parser = argparse.ArgumentParser(description="Speedhive Tools")
     sub = parser.add_subparsers(dest="command")
@@ -243,13 +382,13 @@ def main():
 
     p = sub.add_parser("export-curated-track-records", help="Export curated track records from the workflow store to NDJSON")
     p.add_argument("--org", type=int, required=True, help="Organization ID")
-    p.add_argument("--track-records-root", type=Path, default=Path("./web_data/track_records"), help="Track-record workflow storage root")
+    p.add_argument("--track-records-root", type=Path, default=Path("./data/orgs"), help="Track-record workflow storage root")
     p.add_argument("--output", default=None, help="Output file path (NDJSON)")
     p.set_defaults(func=_export_curated_track_records)
 
     p = sub.add_parser("import-curated-track-records", help="Import curated track records into the workflow store from NDJSON")
     p.add_argument("--org", type=int, required=True, help="Organization ID")
-    p.add_argument("--track-records-root", type=Path, default=Path("./web_data/track_records"), help="Track-record workflow storage root")
+    p.add_argument("--track-records-root", type=Path, default=Path("./data/orgs"), help="Track-record workflow storage root")
     p.add_argument("--input", required=True, help="Input file path (NDJSON)")
     p.add_argument("--mode", choices=["merge", "replace"], default="merge")
     p.set_defaults(func=_import_curated_track_records)
@@ -257,13 +396,13 @@ def main():
     p = sub.add_parser("scan-track-records", help="Diff track records against the curated store without refreshing the org cache")
     p.add_argument("--org", type=int, required=True, help="Organization ID")
     p.add_argument("--db-path", type=Path, default=default_db_path(), help="Primary SQLite cache path")
-    p.add_argument("--track-records-root", type=Path, default=Path("./web_data/track_records"), help="Track-records storage root")
+    p.add_argument("--track-records-root", type=Path, default=Path("./data/orgs"), help="Track-records storage root")
     p.set_defaults(func=_scan_track_records)
 
     p = sub.add_parser("refresh-track-records", help="Refresh the org cache if needed, then scan track records")
     p.add_argument("--org", type=int, required=True, help="Organization ID")
     p.add_argument("--db-path", type=Path, default=default_db_path(), help="Primary SQLite cache path")
-    p.add_argument("--track-records-root", type=Path, default=Path("./web_data/track_records"), help="Track-records storage root")
+    p.add_argument("--track-records-root", type=Path, default=Path("./data/orgs"), help="Track-records storage root")
     p.add_argument("--mode", choices=["full", "incremental"], default="incremental")
     p.add_argument("--force", action="store_true", help="Refresh and scan even if the cache appears fresh")
     p.add_argument("--max-events", type=int, default=None, help="Maximum number of events to refresh")
@@ -299,6 +438,10 @@ def main():
     p.add_argument("--db-path", type=Path, default=default_db_path(), help="Primary SQLite cache path")
     p.add_argument("--max-events", type=int, default=None, help="Maximum number of events to export")
     p.set_defaults(func=_export_db_dump)
+
+    p = sub.add_parser("configure", help="Run an interactive setup wizard to configure organization settings")
+    p.add_argument("--org", type=int, default=None, help="Organization ID (optional, will prompt if omitted)")
+    p.set_defaults(func=_configure_org)
 
     register_discovered(sub)
 

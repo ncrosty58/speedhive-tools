@@ -1,0 +1,19 @@
+{
+  "notifications": {
+    "enabled": true,
+    "de_duplicate": true
+  },
+  "parsing": {
+    "engine": "regex"
+  },
+  "stats": {
+    "min_laps": 20
+  },
+  "overrides": {
+    "RESEND_API_KEY": "re_yourResendApiKeyHere",
+    "NOTIFICATION_FROM_EMAIL": "announcements@yourdomain.com",
+    "NOTIFICATION_TO_EMAILS": "admin@yourdomain.com,alerts@yourdomain.com",
+    "GEMINI_API_KEY": "AIzaSyYourGeminiApiKeyHere",
+    "GEMINI_MODEL": "gemini-2.5-flash"
+  }
+}

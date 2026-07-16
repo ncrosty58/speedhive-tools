@@ -21,7 +21,11 @@ if TYPE_CHECKING:
 
 
 def default_db_path() -> Path:
-    return Path(os.environ.get("SPEEDHIVE_DB_PATH", "./web_data/speedhive.db"))
+    db_path = os.environ.get("SPEEDHIVE_DB_PATH")
+    if db_path:
+        return Path(db_path)
+    data_dir = os.environ.get("SPEEDHIVE_DATA_DIR", "./data")
+    return Path(data_dir) / "speedhive.db"
 
 
 
