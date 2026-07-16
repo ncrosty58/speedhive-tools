@@ -18,8 +18,7 @@ def test_package_and_submodules_importable():
         "speedhive.workflows.track_records.import_curated",
         "speedhive.stores.track_records",
         "speedhive.llm",
-        "speedhive.llm.gemini",
-        "speedhive.llm.track_records",
+        "speedhive.utils.llm_track_records",
     ):
         m = importlib.import_module(mod)
         assert m is not None

@@ -112,11 +112,11 @@ src/speedhive/
 ├── wrapper.py                   # SpeedhiveClient — high-level API wrapper
 ├── storage.py                   # SpeedhiveStorage — SQLite cache + queries
 ├── ndjson.py                    # Streaming NDJSON helpers
+├── llm.py                       # Optional Gemini client for LLM-based track-record parsing (env-var config)
 ├── generated/                   # Auto-generated OpenAPI models/endpoints
-├── llm/                         # Optional LLM-based track-record parsing
-│   ├── gemini.py                # Gemini client (env-var config)
-│   └── track_records.py         # Provider-agnostic prompt/schema/parsing logic
-├── utils/                       # Lap-time parsing, outlier detection, regex text parsing
+├── utils/                       # Lap-time parsing, outlier detection, regex + LLM text parsing
+│   ├── lap_analysis.py          # parse_track_record_text (regex) + lap-time/outlier helpers
+│   └── llm_track_records.py     # parse_track_record_text_llm — provider-agnostic LLM alternative
 ├── analyzers/                   # analyze_consistency, analyze_driver_laps (CLI)
 ├── exporters/                   # export_db_dump, export_lap_records, export_track_records, ...
 ├── workflows/
@@ -302,11 +302,11 @@ scan = curation.run_sync_and_diff(
 )
 ```
 
-`speedhive.llm.gemini` is the actual Gemini client (config via
+`speedhive.llm` is the actual Gemini client (config via
 `GEMINI_API_KEY`/`GEMINI_MODEL` env vars — see Configuration below);
-`speedhive.llm.track_records` is the provider-agnostic prompt/schema/parsing
-logic underneath it, which takes an injected `call_llm_fn` so it has no
-dependency on Gemini specifically if you want to plug in a different model.
+`speedhive.utils.llm_track_records` is the provider-agnostic prompt/schema/
+parsing logic underneath it, which takes an injected `call_llm_fn` so it has
+no dependency on Gemini specifically if you want to plug in a different model.
 
 `run_sync_and_diff`/`storage.get_track_records` also accept a `parse_cache`
 (announcement identity -> cached result) plus an `on_parsed` callback, so

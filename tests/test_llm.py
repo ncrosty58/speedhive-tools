@@ -1,6 +1,6 @@
 import json
 
-from speedhive.llm.track_records import (
+from speedhive.utils.llm_track_records import (
     parse_track_record_text_llm,
     parse_track_record_texts_llm_bulk,
 )
