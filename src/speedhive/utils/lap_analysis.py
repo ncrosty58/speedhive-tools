@@ -209,6 +209,14 @@ def _compute_laps_and_enriched_from_payloads(
             if isinstance(row.get("laps"), list):
                 parent = row
                 for lap in parent.get("laps", []):
+                    # A pit-in/pit-out lap includes time spent off-track in
+                    # the pits (sometimes minutes' worth), not racing pace --
+                    # pooling it in with green-flag laps skews mean/stdev/CV,
+                    # an effect all-time pooling across many laps normally
+                    # dilutes into invisibility but that a small single-year
+                    # or single-session sample can't absorb.
+                    if lap.get("inPit") or lap.get("pit"):
+                        continue
                     t = None
                     for tf in ("lapTime", "lap_time", "time", "lapSeconds", "seconds"):
                         if tf in lap:
@@ -219,6 +227,9 @@ def _compute_laps_and_enriched_from_payloads(
                         continue
                     key = _assign_key(parent, sid, pos_map)
                     laps_by_driver[key].append(t)
+                continue
+
+            if row.get("inPit") or row.get("pit"):
                 continue
 
             t = None
@@ -398,6 +409,21 @@ def first_non_empty(*values: Any) -> Any:
         if val_str:
             return value
     return None
+
+
+def session_year(session_raw: Dict) -> Optional[int]:
+    """Extract the calendar year a session/event took place in, from
+    whichever date-like field is present."""
+    raw_date = first_non_empty(
+        session_raw.get("startTime"),
+        session_raw.get("scheduledStart"),
+        session_raw.get("start_date"),
+        session_raw.get("date"),
+    )
+    if not raw_date:
+        return None
+    match = re.match(r"(\d{4})", str(raw_date))
+    return int(match.group(1)) if match else None
 
 
 def compute_lap_statistics(laps: List[Dict[str, Any]], ignore_outliers: bool = False) -> Dict[str, Any]:

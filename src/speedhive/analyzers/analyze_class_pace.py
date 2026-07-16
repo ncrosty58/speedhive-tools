@@ -6,7 +6,7 @@ from collections import defaultdict
 from typing import Dict, List, Optional
 
 from speedhive.analyzers.analyze_consistency import matches_session_type
-from speedhive.utils.lap_analysis import first_non_empty, normalize_name
+from speedhive.utils.lap_analysis import first_non_empty, normalize_name, session_year
 
 
 def _build_pos_class_map(results_rows: List[Dict]) -> Dict[int, str]:
@@ -49,19 +49,6 @@ def _class_group_key(class_name: str) -> str:
     here.
     """
     return re.sub(r"\s+", " ", class_name.strip()).upper()
-
-
-def _session_year(session_raw: Dict) -> Optional[int]:
-    raw_date = first_non_empty(
-        session_raw.get("startTime"),
-        session_raw.get("scheduledStart"),
-        session_raw.get("start_date"),
-        session_raw.get("date"),
-    )
-    if not raw_date:
-        return None
-    match = re.match(r"(\d{4})", str(raw_date))
-    return int(match.group(1)) if match else None
 
 
 def compute_avg_lap_by_class_year(
@@ -112,7 +99,7 @@ def compute_avg_lap_by_class_year(
         if sid not in pos_class_cache:
             pos_class_cache[sid] = _build_pos_class_map(results_map.get(sid))
         raw_class = pos_class_cache[sid].get(pos)
-        year = _session_year(session_raw)
+        year = session_year(session_raw)
         if not raw_class or year is None:
             continue
 
@@ -192,7 +179,7 @@ def compute_participation_by_year(
         if not any(matches_session_type(session_raw, t) for t in session_types):
             continue
 
-        year = _session_year(session_raw)
+        year = session_year(session_raw)
         name = value.get("name")
         if year is None or not name:
             continue

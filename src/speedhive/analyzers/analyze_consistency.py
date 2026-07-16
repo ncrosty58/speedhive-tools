@@ -14,6 +14,7 @@ from speedhive.utils.lap_analysis import (
     compute_laps_and_enriched_from_storage,
     normalize_name,
     format_seconds,
+    session_year,
 )
 
 if TYPE_CHECKING:
@@ -87,6 +88,39 @@ def matches_session_type(session_raw: Dict, session_type: str) -> bool:
         return is_race_session(session_raw)
 
 
+def _pool_weighted_stats(parts: List[Tuple[int, float, float]]) -> Dict[str, Any]:
+    """Pool (lap_count, mean, stdev) tuples into one lap-count-weighted
+    {lap_count, mean, stdev, cv}. Shared by every aggregation below that
+    combines several sessions'/years'/aliases' worth of stats for the same
+    driver into one summary.
+    """
+    total_laps = sum(n for n, _, _ in parts)
+    pooled_mean = sum(n * m for n, m, _ in parts) / total_laps
+
+    # Pool variance within sessions only (exclude between-session pace differences)
+    numer = sum((n - 1) * (stdev_v ** 2) for n, _, stdev_v in parts)
+    denom = sum(n - 1 for n, _, _ in parts)
+    pooled_var = numer / denom if denom > 0 else 0.0
+    pooled_stdev = math.sqrt(pooled_var) if pooled_var > 0 else 0.0
+
+    # Calculate pooled CV as scale-invariant weighted average of session CVs
+    cv_numer = 0.0
+    cv_denom = 0.0
+    for n, mean_v, stdev_v in parts:
+        if mean_v > 0:
+            cv_v = stdev_v / mean_v
+            cv_numer += n * cv_v
+            cv_denom += n
+    pooled_cv = (cv_numer / cv_denom) if cv_denom > 0 else None
+
+    return {
+        "lap_count": total_laps,
+        "mean": pooled_mean,
+        "stdev": pooled_stdev,
+        "cv": pooled_cv,
+    }
+
+
 def aggregate_by_name(enriched: Dict[str, Dict], session_map: Dict[str, Dict], session_types: List[str] = None) -> Dict[str, Dict]:
     """Pool per-driver-key statistics by driver display name."""
     if not session_types:
@@ -122,41 +156,79 @@ def aggregate_by_name(enriched: Dict[str, Dict], session_map: Dict[str, Dict], s
 
     aggregated: Dict[str, Dict] = {}
     for name, parts in grouped.items():
-        total_laps = sum(n for n, _, _ in parts)
-        if total_laps <= 0:
+        if sum(n for n, _, _ in parts) <= 0:
             continue
-        pooled_mean = sum(n * m for n, m, _ in parts) / total_laps
-        
-        # Pool variance within sessions only (exclude between-session pace differences)
-        numer = sum((n - 1) * (stdev_v ** 2) for n, _, stdev_v in parts)
-        denom = sum(n - 1 for n, _, _ in parts)
-        pooled_var = numer / denom if denom > 0 else 0.0
-        pooled_stdev = math.sqrt(pooled_var) if pooled_var > 0 else 0.0
-        
-        # Calculate pooled CV as scale-invariant weighted average of session CVs
-        cv_numer = 0.0
-        cv_denom = 0.0
-        for n, mean_v, stdev_v in parts:
-            if mean_v > 0:
-                cv_v = stdev_v / mean_v
-                cv_numer += n * cv_v
-                cv_denom += n
-        pooled_cv = (cv_numer / cv_denom) if cv_denom > 0 else None
-
-        aggregated[name] = {
-            "lap_count": total_laps,
-            "mean": pooled_mean,
-            "stdev": pooled_stdev,
-            "cv": pooled_cv,
-        }
+        aggregated[name] = _pool_weighted_stats(parts)
     return aggregated
 
 
-def cluster_names(by_name: Dict[str, Dict], threshold: float = 0.85) -> Dict[str, Dict]:
-    """Cluster similar display names and repool stats."""
+def aggregate_by_name_and_year(
+    enriched: Dict[str, Dict],
+    session_map: Dict[str, Dict],
+    session_types: List[str] = None,
+) -> Dict[str, Dict[int, Dict]]:
+    """Pool per-driver-key statistics by driver display name AND year.
+
+    Same session-type matching and lap-count-weighted pooling as
+    aggregate_by_name, just bucketed by year too -- feeds
+    get_most_improved_rankings, which needs to compare a driver's stats
+    across specific years rather than all-time. Names here are raw
+    (unclustered) -- get_most_improved_rankings re-keys this by an existing
+    cluster_names() result before comparing years, so aliasing is handled
+    consistently with the rest of the consistency rankings.
+
+    Returns {name: {year: {lap_count, mean, stdev, cv}}}.
+    """
+    if not session_types:
+        session_types = ["race"]
+    grouped: Dict[Tuple[str, int], List[Tuple[int, float, float]]] = defaultdict(list)
+    for _, value in enriched.items():
+        name = value.get("name")
+        if not name:
+            continue
+
+        session_keys = value.get("session_keys") or []
+        year = None
+        for session_key in session_keys:
+            if not (isinstance(session_key, str) and session_key.startswith("session") and "_pos" in session_key):
+                continue
+            try:
+                sid = session_key.split("_")[0].replace("session", "")
+                session_raw = session_map.get(sid, {})
+                if any(matches_session_type(session_raw, t) for t in session_types):
+                    year = session_year(session_raw)
+                    break
+            except Exception:
+                continue
+        if year is None:
+            continue
+
+        lap_count = int(value.get("lap_count") or 0)
+        mean_v = float(value.get("mean") or 0.0)
+        stdev_v = float(value.get("stdev") or 0.0)
+        if lap_count <= 0:
+            continue
+        grouped[(str(name), year)].append((lap_count, mean_v, stdev_v))
+
+    by_name_year: Dict[str, Dict[int, Dict]] = defaultdict(dict)
+    for (name, year), parts in grouped.items():
+        if sum(n for n, _, _ in parts) <= 0:
+            continue
+        by_name_year[name][year] = _pool_weighted_stats(parts)
+    return dict(by_name_year)
+
+
+def cluster_name_groups(by_name: Dict[str, Dict], threshold: float = 0.85) -> Dict[str, List[str]]:
+    """Group similar display names together by fuzzy similarity, without
+    touching their stats -- returns {canonical_name: [alias names, incl.
+    itself]}. Shared by cluster_names (which also repools stats) and
+    anything else that needs this exact same identity-grouping decision
+    applied to differently-shaped data (e.g. get_most_improved_rankings's
+    year-bucketed stats).
+    """
     items = sorted(by_name.items(), key=lambda pair: -pair[1].get("lap_count", 0))
     clusters: List[Dict] = []
-    for name, stats in items:
+    for name, _stats in items:
         normalized = normalize_name(name)
         best_cluster = None
         best_score = 0.0
@@ -172,16 +244,22 @@ def cluster_names(by_name: Dict[str, Dict], threshold: float = 0.85) -> Dict[str
                 best_score = score
                 best_cluster = cluster
         if best_cluster is not None and best_score >= threshold:
-            best_cluster["members"].append((name, stats))
+            best_cluster["members"].append(name)
         else:
-            clusters.append({"rep": name, "norm": normalized, "members": [(name, stats)]})
+            clusters.append({"rep": name, "norm": normalized, "members": [name]})
+
+    return {cluster["rep"]: cluster["members"] for cluster in clusters}
+
+
+def cluster_names(by_name: Dict[str, Dict], threshold: float = 0.85) -> Dict[str, Dict]:
+    """Cluster similar display names and repool stats."""
+    groups = cluster_name_groups(by_name, threshold=threshold)
 
     merged: Dict[str, Dict] = {}
-    for cluster in clusters:
+    for rep, aliases in groups.items():
         parts = []
-        aliases = []
-        for name, stats in cluster["members"]:
-            aliases.append(name)
+        for name in aliases:
+            stats = by_name.get(name, {})
             n = int(stats.get("lap_count") or 0)
             mean_v = float(stats.get("mean") or 0.0)
             stdev_v = float(stats.get("stdev") or 0.0)
@@ -189,32 +267,9 @@ def cluster_names(by_name: Dict[str, Dict], threshold: float = 0.85) -> Dict[str
                 parts.append((n, mean_v, stdev_v))
         if not parts:
             continue
-        total_laps = sum(n for n, _, _ in parts)
-        pooled_mean = sum(n * m for n, m, _ in parts) / total_laps
-        
-        # Pool variance within sessions only (exclude between-session pace differences)
-        numer = sum((n - 1) * (stdev_v ** 2) for n, _, stdev_v in parts)
-        denom = sum(n - 1 for n, _, _ in parts)
-        pooled_var = numer / denom if denom > 0 else 0.0
-        pooled_stdev = math.sqrt(pooled_var) if pooled_var > 0 else 0.0
-        
-        # Calculate pooled CV as scale-invariant weighted average of session CVs
-        cv_numer = 0.0
-        cv_denom = 0.0
-        for n, mean_v, stdev_v in parts:
-            if mean_v > 0:
-                cv_v = stdev_v / mean_v
-                cv_numer += n * cv_v
-                cv_denom += n
-        pooled_cv = (cv_numer / cv_denom) if cv_denom > 0 else None
-
-        merged[cluster["rep"]] = {
-            "lap_count": total_laps,
-            "mean": pooled_mean,
-            "stdev": pooled_stdev,
-            "cv": pooled_cv,
-            "aliases": aliases,
-        }
+        pooled = _pool_weighted_stats(parts)
+        pooled["aliases"] = aliases
+        merged[rep] = pooled
     return merged
 
 
@@ -253,6 +308,73 @@ def get_consistency_rankings(
     total_laps_analyzed = sum(d.get("lap_count", 0) for d in clustered.values())
 
     return top_consistent, least_consistent, total_drivers, total_laps_analyzed
+
+
+def get_most_improved_rankings(
+    enriched: Dict[str, Dict],
+    session_map: Dict[str, Dict],
+    session_types: List[str] = None,
+    min_laps: int = 20,
+    limit: int = 15,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Rank drivers by how much their consistency (CV) has changed between
+    their earliest and most recent qualifying year (lap_count >= min_laps in
+    each) -- anchored to each driver's own history, not a fixed calendar-year
+    pair, so a driver racing since 2015 and one who joined in 2023 are each
+    measured against their own start. CV, not raw mean lap time, is used
+    because it's self-relative and stays meaningful even if a driver's
+    class/track mix changed between the two years. Drivers with fewer than
+    2 qualifying years are excluded -- nothing to compare them against.
+
+    Returns (most_improved, most_declined), each a list of rows sorted by
+    CV delta (first-year CV minus last-year CV; positive = improved),
+    limited to `limit`.
+    """
+    by_name = aggregate_by_name(enriched, session_map, session_types=session_types)
+    clusters = cluster_names(by_name)
+    by_name_year_raw = aggregate_by_name_and_year(enriched, session_map, session_types=session_types)
+
+    # Re-key the raw (unclustered) year-bucketed stats using the same
+    # name-clustering decision already made above, so a driver whose name
+    # was spelled differently in an early vs. a recent year still counts as
+    # one person here.
+    by_name_year: Dict[str, Dict[int, Dict]] = {}
+    for canonical, data in clusters.items():
+        years: Dict[int, List[Tuple[int, float, float]]] = defaultdict(list)
+        for alias in data.get("aliases", [canonical]):
+            for year, stats in by_name_year_raw.get(alias, {}).items():
+                n = stats.get("lap_count", 0)
+                if n > 0:
+                    years[year].append((n, stats["mean"], stats["stdev"]))
+        if years:
+            by_name_year[canonical] = {year: _pool_weighted_stats(parts) for year, parts in years.items()}
+
+    rows = []
+    for name, years in by_name_year.items():
+        qualifying_years = sorted(
+            y for y, stats in years.items()
+            if stats.get("lap_count", 0) >= min_laps and stats.get("cv") is not None
+        )
+        if len(qualifying_years) < 2:
+            continue
+        first_year, last_year = qualifying_years[0], qualifying_years[-1]
+        first_cv = years[first_year]["cv"]
+        last_cv = years[last_year]["cv"]
+        delta = first_cv - last_cv
+        rows.append({
+            "name": name,
+            "aliases": clusters.get(name, {}).get("aliases", [name]),
+            "first_year": first_year,
+            "last_year": last_year,
+            "first_cv_display": f"{first_cv * 100:.2f}%",
+            "last_cv_display": f"{last_cv * 100:.2f}%",
+            "cv_delta": delta,
+            "cv_delta_display": f"{delta * 100:+.2f}pp",
+        })
+
+    most_improved = sorted(rows, key=lambda r: r["cv_delta"], reverse=True)[:limit]
+    most_declined = sorted(rows, key=lambda r: r["cv_delta"])[:limit]
+    return most_improved, most_declined
 
 
 def print_top_bottom(by_name: Dict[str, Dict], top_n: int = 10, min_laps: int = 20) -> None:

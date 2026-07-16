@@ -67,6 +67,90 @@ def test_compute_laps_and_enriched(tmp_path):
     assert enriched["session1_pos1"]["name"] == "Driver A"
 
 
+def test_compute_laps_and_enriched_excludes_pit_laps_flat_format(tmp_path):
+    org = 9999
+    dump_dir = tmp_path / "output"
+    org_dir = dump_dir / str(org)
+    org_dir.mkdir(parents=True)
+
+    sessions = [
+        {
+            "session_id": 1,
+            "raw": {
+                "id": 1,
+                "results": [{"position": 1, "name": "Driver A"}],
+            },
+        }
+    ]
+    with gzip.open(org_dir / "sessions.ndjson.gz", "wt") as f:
+        for s in sessions:
+            f.write(json.dumps(s) + "\n")
+
+    # A pit-in/pit-out lap (minutes long) mixed in with normal laps.
+    laps = [
+        {
+            "session_id": 1,
+            "rows": [
+                {"position": 1, "lapTime": "1:17.8"},
+                {"position": 1, "lapTime": "1:18.0"},
+                {"position": 1, "lapTime": "16:56.0", "inPit": True},
+            ],
+        }
+    ]
+    with gzip.open(org_dir / "laps.ndjson.gz", "wt") as f:
+        for lap_entry in laps:
+            f.write(json.dumps(lap_entry) + "\n")
+
+    laps_by_driver, enriched = compute_laps_and_enriched(dump_dir, org)
+    assert len(laps_by_driver["session1_pos1"]) == 2
+    assert all(t < 100 for t in laps_by_driver["session1_pos1"])
+
+
+def test_compute_laps_and_enriched_excludes_pit_laps_nested_format(tmp_path):
+    org = 9999
+    dump_dir = tmp_path / "output"
+    org_dir = dump_dir / str(org)
+    org_dir.mkdir(parents=True)
+
+    sessions = [
+        {
+            "session_id": 1,
+            "raw": {
+                "id": 1,
+                "results": [{"position": 1, "name": "Driver A"}],
+            },
+        }
+    ]
+    with gzip.open(org_dir / "sessions.ndjson.gz", "wt") as f:
+        for s in sessions:
+            f.write(json.dumps(s) + "\n")
+
+    # Nested format: one row per driver, laps embedded in a "laps" list.
+    laps = [
+        {
+            "session_id": 1,
+            "rows": [
+                {
+                    "position": 1,
+                    "laps": [
+                        {"lapTime": "1:17.8"},
+                        {"lapTime": "1:18.0"},
+                        {"lapTime": "16:56.0", "inPit": True},
+                        {"lapTime": "15:00.0", "pit": True},
+                    ],
+                }
+            ],
+        }
+    ]
+    with gzip.open(org_dir / "laps.ndjson.gz", "wt") as f:
+        for lap_entry in laps:
+            f.write(json.dumps(lap_entry) + "\n")
+
+    laps_by_driver, enriched = compute_laps_and_enriched(dump_dir, org)
+    assert len(laps_by_driver["session1_pos1"]) == 2
+    assert all(t < 100 for t in laps_by_driver["session1_pos1"])
+
+
 def test_parse_track_record_text_valid():
     text = "New Track Record (1:17.870) for IT7 by Bob Cross."
     result = parse_track_record_text(text)
