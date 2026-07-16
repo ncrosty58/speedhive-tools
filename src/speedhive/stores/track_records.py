@@ -9,7 +9,7 @@ from speedhive.ndjson import load_ndjson, save_ndjson
 
 
 def org_track_records_dir(track_records_root: Path, org_id: int) -> Path:
-    return Path(track_records_root) / str(org_id)
+    return Path(track_records_root) / str(org_id) / "track_records"
 
 
 def paths_for_org(track_records_root: Path, org_id: int) -> Dict[str, Path]:

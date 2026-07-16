@@ -194,4 +194,4 @@ def test_import_curated_track_records_creates_curated_file(tmp_path):
         except SystemExit:
             pass
 
-    assert (track_records_root / "30476" / "curated.ndjson").exists()
+    assert (track_records_root / "30476" / "track_records" / "curated.ndjson").exists()
