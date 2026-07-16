@@ -122,9 +122,12 @@ def _import_curated_track_records(args):
 def _scan_track_records(args):
     from speedhive.storage import SpeedhiveStorage
     from speedhive.workflows.track_records import curation as track_records
+    from speedhive.settings import get_bulk_parser_for_org
 
     storage = SpeedhiveStorage(args.db_path)
-    result = track_records.run_sync_and_diff(args.org, storage, args.track_records_root)
+    result = track_records.run_sync_and_diff(
+        args.org, storage, args.track_records_root, bulk_parser=get_bulk_parser_for_org(args.org)
+    )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
@@ -132,6 +135,7 @@ def _scan_track_records(args):
 def _refresh_track_records(args):
     from speedhive.storage import SpeedhiveStorage
     from speedhive.workflows.track_records import curation as track_records
+    from speedhive.settings import get_bulk_parser_for_org
 
     client = SpeedhiveClient.create()
     storage = SpeedhiveStorage(args.db_path)
@@ -145,6 +149,7 @@ def _refresh_track_records(args):
         max_events=args.max_events,
         recent_backfill_events=args.recent_backfill_events,
         cleanup_on_full=not args.no_cleanup_on_full,
+        bulk_parser=get_bulk_parser_for_org(args.org),
     )
     print(json.dumps(outcome, indent=2, sort_keys=True))
     return 0
@@ -196,6 +201,8 @@ def _export_db_dump(args):
 
 
 def _configure_org(args):
+    from speedhive.settings import org_settings_path, read_org_settings, write_org_settings
+
     # If org is not passed via CLI, prompt for it
     org_id = args.org
     if not org_id:
@@ -209,25 +216,10 @@ def _configure_org(args):
             print("Error: Organization ID must be an integer.")
             return 1
 
-    # Resolve data directory
-    data_dir = os.environ.get("SPEEDHIVE_DATA_DIR", "./data")
-    org_dir = Path(data_dir) / "orgs" / str(org_id)
-    settings_file = org_dir / "settings.json"
-
-    # Load existing config if available
-    config = {}
-    if settings_file.exists():
-        try:
-            with open(settings_file, "r") as f:
-                config = json.load(f)
-        except Exception:
-            pass
+    settings_file = org_settings_path(org_id)
+    config = read_org_settings(org_id)
 
     # Extract existing values
-    notifications = config.get("notifications", {})
-    notif_enabled_default = notifications.get("enabled", True)
-    notif_dedupe_default = notifications.get("de_duplicate", True)
-
     parsing = config.get("parsing", {})
     parser_default = parsing.get("engine", "regex")
 
@@ -237,21 +229,10 @@ def _configure_org(args):
     overrides = config.get("overrides", {})
     gemini_key_default = overrides.get("GEMINI_API_KEY", os.environ.get(f"GEMINI_API_KEY_{org_id}", os.environ.get("GEMINI_API_KEY", "")))
     gemini_model_default = overrides.get("GEMINI_MODEL", os.environ.get(f"GEMINI_MODEL_{org_id}", os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")))
-    
-    resend_key_default = overrides.get("RESEND_API_KEY", os.environ.get("RESEND_API_KEY", ""))
-    from_email_default = overrides.get("NOTIFICATION_FROM_EMAIL", os.environ.get("NOTIFICATION_FROM_EMAIL", ""))
-    to_emails_default = overrides.get("NOTIFICATION_TO_EMAILS", os.environ.get("NOTIFICATION_TO_EMAILS", ""))
 
     print(f"\n--- Configuring Organization {org_id} ---")
     print(f"Configuration file will be saved to: {settings_file.resolve()}\n")
-
-    # Helper function for yes/no prompts
-    def prompt_bool(prompt_text, default_val):
-        default_str = "Y/n" if default_val else "y/N"
-        val = input(f"{prompt_text} [{default_str}]: ").strip().lower()
-        if not val:
-            return default_val
-        return val.startswith("y")
+    print("Note: notification/email settings are configured through the speedhive-tools-ui web Settings page, not here.\n")
 
     # Helper function for text prompts
     def prompt_text(prompt_text, default_val, is_secret=False):
@@ -276,16 +257,14 @@ def _configure_org(args):
         return default_val
 
     # Prompt user
-    notif_enabled = prompt_bool("Enable notifications", notif_enabled_default)
-    notif_dedupe = prompt_bool("Enable notification deduplication", notif_dedupe_default)
     parser_engine = prompt_choices("Announcer parser engine", ["regex", "llm"], parser_default)
-    
+
     gemini_key = ""
     gemini_model = ""
     if parser_engine == "llm":
         gemini_key = prompt_text("Gemini API Key", gemini_key_default, is_secret=True)
         gemini_model = prompt_text("Gemini Model", gemini_model_default)
-    
+
     min_laps = 20
     try:
         min_laps_str = prompt_text("Minimum laps for consistency statistics", str(min_laps_default))
@@ -294,12 +273,7 @@ def _configure_org(args):
         print("Invalid number for minimum laps. Using default.")
         min_laps = min_laps_default
 
-    resend_key = prompt_text("Resend API Key", resend_key_default, is_secret=True)
-    from_email = prompt_text("Notification 'From' Email Address", from_email_default)
-    to_emails = prompt_text("Notification 'To' Email Addresses (comma separated)", to_emails_default)
-
     # Save to settings.json
-    config["notifications"] = {"enabled": notif_enabled, "de_duplicate": notif_dedupe}
     config["parsing"] = {"engine": parser_engine}
     config["stats"] = {"min_laps": min_laps}
 
@@ -309,9 +283,6 @@ def _configure_org(args):
     for key, val in [
         ("GEMINI_API_KEY", gemini_key),
         ("GEMINI_MODEL", gemini_model),
-        ("RESEND_API_KEY", resend_key),
-        ("NOTIFICATION_FROM_EMAIL", from_email),
-        ("NOTIFICATION_TO_EMAILS", to_emails),
     ]:
         if val:
             config["overrides"][key] = val
@@ -321,10 +292,7 @@ def _configure_org(args):
     if not config["overrides"]:
         config.pop("overrides", None)
 
-    org_dir.mkdir(parents=True, exist_ok=True)
-    with open(settings_file, "w") as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    write_org_settings(org_id, config)
 
     print(f"\nConfiguration saved successfully to {settings_file.name}!")
     return 0
@@ -333,11 +301,8 @@ def _configure_org(args):
 def main():
     from dotenv import load_dotenv
     load_dotenv()
-    # Per-org settings (GEMINI_API_KEY_<org>, RESEND_API_KEY_<org>, etc.) saved
-    # via speedhive-tools-ui's Settings UI live alongside its data dir,
-    # not the top-level .env -- see app/env_config.py in that project.
-    data_dir = os.environ.get("SPEEDHIVE_DATA_DIR", "./data")
-    load_dotenv(os.path.join(data_dir, "org_settings.env"))
+    # Per-org overrides (GEMINI_API_KEY_<org>, etc.) live in
+    # <SPEEDHIVE_DATA_DIR>/orgs/<org_id>/settings.json -- see speedhive.settings.
 
     parser = argparse.ArgumentParser(description="Speedhive Tools")
     sub = parser.add_subparsers(dest="command")

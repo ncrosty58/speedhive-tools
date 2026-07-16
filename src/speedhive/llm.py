@@ -3,55 +3,28 @@ speedhive.utils.llm_track_records.
 
 Config is env-var based -- GEMINI_API_KEY / GEMINI_MODEL, or their per-org
 variants GEMINI_API_KEY_<org_id> / GEMINI_MODEL_<org_id> when an org_id is
-given, falling back to the bare name as a shared default. Per-org values are
-set by speedhive-tools-ui's Track Records Settings UI (app/env_config.py
-writes them into a shared .env file), but reading them here has no
-dependency on that -- any process with the right env vars set (a CLI
-invocation included) resolves the same value.
+given, falling back to the bare name as a shared default. Resolution goes
+through speedhive.settings, which any process (a CLI invocation or a host
+application) resolves the same way.
 """
-import json
 import os
-from pathlib import Path
 from typing import Any, List, Optional
 
 from google import genai
 from google.genai import types
 
+from speedhive.settings import get_org_env_var
+
+
 def get_gemini_api_key(org_id: Optional[int] = None) -> Optional[str]:
     if org_id is not None:
-        data_dir = os.environ.get("SPEEDHIVE_DATA_DIR", "./data")
-        config_path = Path(data_dir) / "orgs" / str(org_id) / "settings.json"
-        if config_path.exists():
-            try:
-                with open(config_path) as f:
-                    config = json.load(f)
-                override = config.get("overrides", {}).get("GEMINI_API_KEY")
-                if override:
-                    return override
-            except Exception:
-                pass
-        scoped = os.environ.get(f"GEMINI_API_KEY_{org_id}")
-        if scoped:
-            return scoped
+        return get_org_env_var("GEMINI_API_KEY", org_id)
     return os.environ.get("GEMINI_API_KEY")
 
 
 def get_gemini_model(org_id: Optional[int] = None) -> Optional[str]:
     if org_id is not None:
-        data_dir = os.environ.get("SPEEDHIVE_DATA_DIR", "./data")
-        config_path = Path(data_dir) / "orgs" / str(org_id) / "settings.json"
-        if config_path.exists():
-            try:
-                with open(config_path) as f:
-                    config = json.load(f)
-                override = config.get("overrides", {}).get("GEMINI_MODEL")
-                if override:
-                    return override
-            except Exception:
-                pass
-        scoped = os.environ.get(f"GEMINI_MODEL_{org_id}")
-        if scoped:
-            return scoped
+        return get_org_env_var("GEMINI_MODEL", org_id)
     return os.environ.get("GEMINI_MODEL")
 
 

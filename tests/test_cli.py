@@ -210,39 +210,64 @@ def test_configure_command_dispatches(mock_configure):
 def test_configure_org_wizard_writes_file(tmp_path, monkeypatch):
     import json as jsonlib
     from speedhive.cli.main import _configure_org
-    
+
     # Mock data directory
     monkeypatch.setenv("SPEEDHIVE_DATA_DIR", str(tmp_path))
-    
+
     class Args:
         org = 99999
-        
+
     # Mock inputs:
-    # 1. Enable notifications -> Enter (Yes)
-    # 2. Enable notification deduplication -> Enter (Yes)
-    # 3. Announcer parser engine -> Enter (regex)
-    # 4. Minimum laps -> "15"
-    # 5. Resend API Key -> "re_test_key"
-    # 6. Notification 'From' -> "test@domain.com"
-    # 7. Notification 'To' -> "recv@domain.com"
-    inputs = ["", "", "", "15", "re_test_key", "test@domain.com", "recv@domain.com"]
+    # 1. Announcer parser engine -> Enter (regex)
+    # 2. Minimum laps -> "15"
+    inputs = ["", "15"]
     input_iter = iter(inputs)
-    
+
     with patch("builtins.input", lambda prompt: next(input_iter)):
         _configure_org(Args())
-        
+
     settings_file = tmp_path / "orgs" / "99999" / "settings.json"
     assert settings_file.exists()
-    
+
     with open(settings_file) as f:
         data = jsonlib.load(f)
-        
-    assert data["notifications"]["enabled"] is True
-    assert data["notifications"]["de_duplicate"] is True
+
     assert data["parsing"]["engine"] == "regex"
     assert data["stats"]["min_laps"] == 15
-    assert data["overrides"]["RESEND_API_KEY"] == "re_test_key"
-    assert data["overrides"]["NOTIFICATION_FROM_EMAIL"] == "test@domain.com"
-    assert data["overrides"]["NOTIFICATION_TO_EMAILS"] == "recv@domain.com"
+    # speedhive-tools has no code path that acts on notification/email
+    # settings -- the wizard must not prompt for or write them.
+    assert "notifications" not in data
+    assert "overrides" not in data
+
+
+def test_configure_org_wizard_llm_engine_prompts_for_gemini_keys(tmp_path, monkeypatch):
+    import json as jsonlib
+    from speedhive.cli.main import _configure_org
+
+    monkeypatch.setenv("SPEEDHIVE_DATA_DIR", str(tmp_path))
+
+    class Args:
+        org = 88888
+
+    # Mock inputs:
+    # 1. Announcer parser engine -> "llm"
+    # 2. Gemini API Key -> "AIza-test-key"
+    # 3. Gemini Model -> "gemini-2.5-pro"
+    # 4. Minimum laps -> Enter (default 20)
+    inputs = ["llm", "AIza-test-key", "gemini-2.5-pro", ""]
+    input_iter = iter(inputs)
+
+    with patch("builtins.input", lambda prompt: next(input_iter)):
+        _configure_org(Args())
+
+    settings_file = tmp_path / "orgs" / "88888" / "settings.json"
+    with open(settings_file) as f:
+        data = jsonlib.load(f)
+
+    assert data["parsing"]["engine"] == "llm"
+    assert data["stats"]["min_laps"] == 20
+    assert data["overrides"]["GEMINI_API_KEY"] == "AIza-test-key"
+    assert data["overrides"]["GEMINI_MODEL"] == "gemini-2.5-pro"
+    assert "notifications" not in data
 
 
