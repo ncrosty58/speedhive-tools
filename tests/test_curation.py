@@ -141,6 +141,92 @@ def test_delete_curated_record_normalization(tmp_path):
     assert raw_ldc_2 in rejected_ldc
 
 
+def _seed_announcement(storage, org_id, session_id, event_id, texts_with_ts):
+    with storage.connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO sessions (session_id, event_id, org_id, name, session_type, payload, saved_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (session_id, event_id, org_id, "Race 1", "race", "{}", "2026-01-01T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO events (event_id, org_id, name, starts_at, payload, saved_at) VALUES (?,?,?,?,?,?)",
+            (event_id, org_id, "Event 1", "2026-01-01", "{}", "2026-01-01T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO session_announcements (session_id, event_id, org_id, payload, saved_at) VALUES (?,?,?,?,?)",
+            (session_id, event_id, org_id, json.dumps(texts_with_ts), "2026-01-01T00:00:00Z"),
+        )
+        conn.commit()
+
+
+def test_delete_curated_record_does_not_retain_full_record_copy(tmp_path):
+    """A curated record's edit history (and everything else about it) must
+    be genuinely gone after deletion -- only enough identity to block it
+    from reappearing is kept on the reject list."""
+    p = curation.paths_for_org(tmp_path, 999)
+    p["dir"].mkdir(parents=True)
+    curation.save_curated(p, {"date": "2026-07-16", "records": [{
+        "classAbbreviation": "FA",
+        "lapTime": "1:01.861",
+        "driverName": "Bob",
+        "marque": None,
+        "date": "2026-07-16",
+        "source": "speedhive",
+        "modified": True,
+        "edit_history": [{"changed_at": "2026-07-01T00:00:00Z", "fields": {"lapTime": {"from": "1:02.000", "to": "1:01.861"}}}],
+    }]})
+
+    identity = ("FA", "1:01.861", "Bob", "2026-07-16")
+    result = curation.delete_curated_record(p, identity)
+    assert result["permanent"] is False
+
+    rejected = curation.load_rejected(p).get("rejected", [])
+    assert len(rejected) == 1
+    assert "record" not in rejected[0]
+    assert "edit_history" not in rejected[0]
+    assert rejected[0]["reason"] == "deleted_from_curated"
+
+
+def test_restore_after_curated_delete_goes_to_review_queue_not_curated(tmp_path):
+    """Restoring a record deleted from curated must send it back through the
+    review queue -- not directly back into curated as a literal undo."""
+    from speedhive.storage import SpeedhiveStorage
+
+    org_id = 777
+    storage = SpeedhiveStorage(tmp_path / "cache.db")
+    p = curation.paths_for_org(tmp_path, org_id)
+    p["dir"].mkdir(parents=True)
+
+    _seed_announcement(storage, org_id, session_id=100, event_id=1, texts_with_ts=[
+        {"text": "New Track Record (1:01.861) for FA by Bob.", "timestamp": "2026-07-16"},
+    ])
+    curation.save_curated(p, {"date": "2026-07-16", "records": [{
+        "classAbbreviation": "FA",
+        "lapTime": "1:01.861",
+        "driverName": "Bob",
+        "marque": None,
+        "date": "2026-07-16",
+        "source": "speedhive",
+    }]})
+
+    identity = ("FA", "1:01.861", "Bob", "2026-07-16")
+    delete_result = curation.delete_curated_record(p, identity)
+    assert delete_result["permanent"] is False
+
+    # Blocked from reappearing while it's still on the reject list.
+    scan_while_rejected = curation.run_sync_and_diff(org_id, storage, tmp_path)
+    assert scan_while_rejected["candidates_found"] == 0
+
+    restore_result = curation.restore_rejected_record(org_id, storage, tmp_path, identity)
+    assert restore_result["found"] is True
+    assert restore_result["reappeared"] is True
+
+    assert curation.load_curated(p).get("records", []) == []
+    candidates = curation.load_candidates(p).get("candidates", [])
+    assert len(candidates) == 1
+    assert candidates[0]["proposed"]["classAbbreviation"] == "FA"
+
+
 def _seed_single_curated_record(tmp_path, org_id=999, **overrides):
     p = curation.paths_for_org(tmp_path, org_id)
     p["dir"].mkdir(parents=True)

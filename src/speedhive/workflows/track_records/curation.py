@@ -368,11 +368,12 @@ def delete_curated_record(p, identity):
 
     Manually-added records are permanently deleted -- there's nothing a scan
     could ever regenerate for them. Everything else is grounded in real
-    announcer data, so a full copy is kept on the reject list: not just to
-    block it from reappearing, but so `restore_rejected_record` can put it
-    straight back later. Records are historical (fastest *as of when set*),
-    so a scan re-deriving a deleted one isn't reliable -- an old record is
-    usually slower than whatever's fastest for that class *now*.
+    announcer data, so it's blocked via the reject list by identity only
+    (like any other rejection) -- deleting is a real deletion, not an
+    archive: the record's edit history and any other accumulated state is
+    gone with it. `restore_rejected_record` doesn't hand it straight back;
+    it re-runs the scan/diff and lets the record re-earn its way back into
+    the review queue, same as restoring a rejected candidate.
 
     Returns {"found": False} or {"found": True, "permanent": bool, "record": dict}.
     """
@@ -396,26 +397,21 @@ def delete_curated_record(p, identity):
         "date": identity[3],
         "rejected_at": _utc_now_iso(),
         "reason": "deleted_from_curated",
-        "record": dict(target),
     })
     save_rejected(p, rejected_payload)
     return {"found": True, "permanent": False, "record": target}
 
 
 def restore_rejected_record(org_id, storage, track_records_root, identity):
-    """Undo a rejection/deletion by identity.
+    """Undo a rejection/deletion by identity: unblock it and let a fresh
+    scan decide whether it still qualifies as a candidate. Applies equally
+    whether the rejection came from deleting a curated record or rejecting
+    a review-queue candidate -- either way, restoring sends it back through
+    the review queue rather than handing it straight back into curated.
 
-    If the rejected entry carries a full `record` (it was a deleted curated
-    record), put that exact record straight back into curated -- a literal
-    undo, not run through the scan/diff "is this a new record" gate, which
-    only makes sense for genuinely new laps, not for reversing a delete.
-
-    If it doesn't carry a `record` (it was a rejected review-queue candidate,
-    never curated), there's nothing to directly restore -- unblock it and let
-    a fresh scan decide whether it still qualifies as a candidate.
-
-    Returns a dict describing the outcome for the caller to build a notice from:
-    {"found": False}, or {"found": True, "restored_to_curated": bool, ...}.
+    Returns a dict describing the outcome for the caller to build a notice
+    from: {"found": False}, or {"found": True, "reappeared": Optional[bool],
+    "rescan_error": Optional[str]}.
     """
     p = paths_for_org(track_records_root, org_id)
     rejected_payload = load_rejected(p)
@@ -427,13 +423,6 @@ def restore_rejected_record(org_id, storage, track_records_root, identity):
     rejected_payload["rejected"] = [r for r in all_rejected if r is not restored_entry]
     save_rejected(p, rejected_payload)
 
-    if restored_entry.get("record"):
-        curated = load_curated(p)
-        curated.setdefault("records", []).append(restored_entry["record"])
-        curated["date"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        save_curated(p, curated)
-        return {"found": True, "restored_to_curated": True}
-
     try:
         run_sync_and_diff(org_id, storage, track_records_root)
         reappeared = any(
@@ -442,9 +431,9 @@ def restore_rejected_record(org_id, storage, track_records_root, identity):
             and c.get("proposed", {}).get("driverName") == identity[2]
             for c in load_candidates(p).get("candidates", [])
         )
-        return {"found": True, "restored_to_curated": False, "reappeared": reappeared}
+        return {"found": True, "reappeared": reappeared}
     except Exception as exc:
-        return {"found": True, "restored_to_curated": False, "reappeared": None, "rescan_error": str(exc)}
+        return {"found": True, "reappeared": None, "rescan_error": str(exc)}
 
 
 _online_status_cache = {}
