@@ -1,5 +1,5 @@
 """LLM client (currently Google Gemini) used by the track-record parsers in
-speedhive.utils.llm_track_records.
+speedhive.llm.track_records.
 
 Config is env-var only -- GEMINI_API_KEY / GEMINI_MODEL -- matching every
 other credential this library's caller (speedhive-tools-ui) uses (e.g.
@@ -67,7 +67,7 @@ def call_gemini_json(
 def parse_track_record_text_with_gemini(text: str) -> Optional[dict]:
     """Drop-in replacement for speedhive.utils.lap_analysis.parse_track_record_text,
     backed by the configured Gemini model instead of a regex."""
-    from speedhive.utils.llm_track_records import parse_track_record_text_llm
+    from speedhive.llm.track_records import parse_track_record_text_llm
 
     def _call(prompt: str, schema: dict) -> Any:
         return call_gemini_json(prompt, response_schema=schema)
@@ -79,7 +79,7 @@ def parse_track_records_bulk_with_gemini(texts: List[str]) -> List[Optional[dict
     """Drop-in bulk replacement: parses an entire list of announcement texts
     in a single Gemini call instead of one call per announcement. Returns a
     list aligned with `texts` (record dict or None per position)."""
-    from speedhive.utils.llm_track_records import parse_track_record_texts_llm_bulk
+    from speedhive.llm.track_records import parse_track_record_texts_llm_bulk
 
     def _call(prompt: str, schema: dict) -> Any:
         # A single call covering hundreds/thousands of announcements needs

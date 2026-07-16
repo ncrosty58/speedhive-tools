@@ -145,8 +145,8 @@ scan = curation.run_sync_and_diff(30476, storage, "./web_data/track_records")
 By default, extraction uses the regex-based `parse_track_record_text`, which
 only catches one exact announcer phrasing. Pass a `bulk_parser` (one call
 covering every announcement text for the org, aligned by position) to use an
-LLM instead — `speedhive.llm` has the Gemini client (config via
-`GEMINI_API_KEY`/`GEMINI_MODEL` env vars) and `speedhive.utils.llm_track_records`
+LLM instead — `speedhive.llm.gemini` has the Gemini client (config via
+`GEMINI_API_KEY`/`GEMINI_MODEL` env vars) and `speedhive.llm.track_records`
 has the provider-agnostic prompt/schema/parsing logic. `run_sync_and_diff`/
 `storage.get_track_records` also accept a `parse_cache` (announcement identity
 -> cached result) plus an `on_parsed` callback, so repeat scans only pay for
