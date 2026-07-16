@@ -294,19 +294,24 @@ covering every announcement text for the org, aligned by position) to use an
 LLM instead:
 
 ```python
+from functools import partial
 from speedhive.llm import parse_track_records_bulk_with_gemini
 
 scan = curation.run_sync_and_diff(
     30476, storage, "./web_data/track_records",
-    bulk_parser=parse_track_records_bulk_with_gemini,
+    bulk_parser=partial(parse_track_records_bulk_with_gemini, org_id=30476),
 )
 ```
 
-`speedhive.llm` is the actual Gemini client (config via
-`GEMINI_API_KEY`/`GEMINI_MODEL` env vars — see Configuration below);
-`speedhive.utils.llm_track_records` is the provider-agnostic prompt/schema/
-parsing logic underneath it, which takes an injected `call_llm_fn` so it has
-no dependency on Gemini specifically if you want to plug in a different model.
+`speedhive.llm` is the actual Gemini client (config via `GEMINI_API_KEY`/
+`GEMINI_MODEL` env vars, or their per-org variants `GEMINI_API_KEY_<org_id>`/
+`GEMINI_MODEL_<org_id>` when `org_id` is passed to `get_gemini_api_key`/
+`get_gemini_model`/the parse functions — falls back to the bare name if the
+org-scoped one isn't set. speedhive-tools-ui's Settings UI writes the
+org-scoped variant; see Configuration below.) `speedhive.utils.llm_track_records`
+is the provider-agnostic prompt/schema/parsing logic underneath it, which
+takes an injected `call_llm_fn` so it has no dependency on Gemini
+specifically if you want to plug in a different model.
 
 `run_sync_and_diff`/`storage.get_track_records` also accept a `parse_cache`
 (announcement identity -> cached result) plus an `on_parsed` callback, so
@@ -351,7 +356,7 @@ Run any of them with `--help` to see its full argument list.
 | `SPEEDHIVE_DB_PATH` | Default SQLite cache path used by CLI commands |
 | `TRACK_RECORDS_STALE_HOURS` | How old the cache can be before `get_cache_status` reports `needs_sync` (default `20`) |
 | `GOTIFY_URL`, `GOTIFY_APP_TOKEN` | Optional push notification when new track-record candidates are found |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | Gemini credentials for `speedhive.llm`'s LLM-based track-record parser (default model `gemini-2.5-flash`) |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` (or `_<org_id>` suffixed) | Gemini credentials for `speedhive.llm`'s LLM-based track-record parser (default model `gemini-2.5-flash`) |
 
 ---
 
