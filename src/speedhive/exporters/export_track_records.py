@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from speedhive.ndjson import dumps_ndjson
-from speedhive.workflows.track_records.extract import extract_records_from_storage
+from speedhive.storage import SpeedhiveStorage
 
 
 def default_db_path() -> Path:
@@ -28,7 +28,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"Error: Database file does not exist at '{args.db_path}'. Please sync or import first.", file=sys.stderr)
         return 1
 
-    records = extract_records_from_storage(args.org, args.db_path, args.classification)
+    storage = SpeedhiveStorage(args.db_path)
+    records = storage.get_track_records(args.org, args.classification)
 
     body = dumps_ndjson(
         {

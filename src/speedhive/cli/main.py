@@ -116,21 +116,25 @@ def _import_curated_track_records(args):
 
 
 def _scan_track_records(args):
+    from speedhive.storage import SpeedhiveStorage
     from speedhive.workflows.track_records import curation as track_records
 
-    result = track_records.run_sync_and_diff(args.org, args.db_path, args.track_records_root)
+    storage = SpeedhiveStorage(args.db_path)
+    result = track_records.run_sync_and_diff(args.org, storage, args.track_records_root)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
 
 def _refresh_track_records(args):
+    from speedhive.storage import SpeedhiveStorage
     from speedhive.workflows.track_records import curation as track_records
 
     client = SpeedhiveClient.create()
+    storage = SpeedhiveStorage(args.db_path)
     outcome = track_records.refresh_and_scan(
         args.org,
         client,
-        args.db_path,
+        storage,
         args.track_records_root,
         mode=args.mode,
         force=args.force,

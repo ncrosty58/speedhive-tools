@@ -23,12 +23,11 @@ def _prefer_gz(path: Path) -> Path:
     return path
 
 
-def import_dump_to_storage(org: int, dump_dir: Path, db_path: Path) -> Dict[str, int]:
+def import_dump_to_storage(org: int, dump_dir: Path, storage: SpeedhiveStorage) -> Dict[str, int]:
     dump = dump_dir / str(org)
     if not dump.exists():
         raise FileNotFoundError(f"Dump directory for organization {org} does not exist at: {dump}")
 
-    storage = SpeedhiveStorage(db_path)
     summary = {
         "events": 0,
         "sessions": 0,
@@ -541,7 +540,8 @@ def main(argv=None) -> int:
     parser.add_argument("--db-path", type=Path, default=default_db_path(), help="Primary SQLite cache path")
     args = parser.parse_args(argv)
 
-    summary = import_dump_to_storage(args.org, args.dump_dir, args.db_path)
+    storage = SpeedhiveStorage(args.db_path)
+    summary = import_dump_to_storage(args.org, args.dump_dir, storage)
 
     # Ingest analytical tables
     dump = args.dump_dir / str(args.org)

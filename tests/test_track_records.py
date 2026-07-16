@@ -8,13 +8,14 @@ from speedhive.utils.lap_analysis import parse_track_record_text
 def test_extract_track_records_cli_outputs_ndjson(tmp_path, monkeypatch):
     """export-track-records emits NDJSON: a _meta line, then one record per line."""
     from speedhive.exporters import export_track_records as ptr
+    from speedhive.storage import SpeedhiveStorage
 
     db = tmp_path / "cache.db"
     db.write_text("")  # only the exists() check touches it once extraction is stubbed
     monkeypatch.setattr(
-        ptr,
-        "extract_records_from_storage",
-        lambda org, db_path, classification=None: [
+        SpeedhiveStorage,
+        "get_track_records",
+        lambda self, org, classification=None: [
             {"classification": "IT7", "lap_time": "1:17.870", "driver": "Bob Cross"},
             {"classification": "SM", "lap_time": "1:14.203", "driver": "Jane Doe"},
         ],

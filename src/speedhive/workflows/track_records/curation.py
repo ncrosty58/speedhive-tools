@@ -20,11 +20,9 @@ import time
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
-from pathlib import Path
 
 from speedhive.ndjson import save_ndjson
 from speedhive.workflows.refresh_org_cache import refresh_org_cache
-from speedhive.workflows.track_records.extract import extract_records_from_storage
 from speedhive.stores.track_records import (
     load_candidates,
     load_curated,
@@ -36,7 +34,6 @@ from speedhive.stores.track_records import (
     save_json,
     save_rejected,
 )
-from speedhive.storage import SpeedhiveStorage
 
 GOTIFY_URL = os.environ.get("GOTIFY_URL")
 GOTIFY_APP_TOKEN = os.environ.get("GOTIFY_APP_TOKEN")
@@ -118,10 +115,9 @@ def rejected_key(classAbbreviation, lapTime, driverName, date):
 _online_status_cache = {}
 
 
-def get_cache_status(org_id, db_path, track_records_root, client=None):
+def get_cache_status(org_id, storage, track_records_root, client=None):
     """Freshness info for the Speedhive cache -- queries Speedhive dynamically if client is provided."""
     p = paths_for_org(track_records_root, org_id)
-    db_path = Path(db_path)
 
     candidates_payload = load_candidates(p)
     pending_candidates = len(candidates_payload.get("candidates", []))
@@ -132,17 +128,15 @@ def get_cache_status(org_id, db_path, track_records_root, client=None):
     age_hours = None
     needs_sync_local = True
 
-    if db_path.exists():
-        try:
-            storage = SpeedhiveStorage(db_path)
-            state = storage.get_org_status(org_id) or {}
-            last_refresh_at = state.get("last_refresh_at")
-            if last_refresh_at:
-                last_dt = datetime.fromisoformat(str(last_refresh_at).replace("Z", "+00:00"))
-                age_hours = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600.0
-                needs_sync_local = age_hours >= stale_after_hours
-        except Exception:
-            pass
+    try:
+        state = storage.get_org_status(org_id) or {}
+        last_refresh_at = state.get("last_refresh_at")
+        if last_refresh_at:
+            last_dt = datetime.fromisoformat(str(last_refresh_at).replace("Z", "+00:00"))
+            age_hours = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600.0
+            needs_sync_local = age_hours >= stale_after_hours
+    except Exception:
+        pass
 
     # Check if we have a fresh cached result (within 5 minutes)
     now = time.time()
@@ -162,13 +156,12 @@ def get_cache_status(org_id, db_path, track_records_root, client=None):
     needs_sync = needs_sync_local
     check_source = "local_age"
 
-    if client and db_path.exists():
+    if client:
         try:
             # Query Speedhive's latest 5 events for this organization
             online_events = client.get_events(org_id, limit=5) or []
             if online_events:
-                storage = SpeedhiveStorage(db_path)
-                cached_events = storage.get_events(org_id) or []
+                cached_events = storage.get_events(org_id).payload or []
                 cached_ids = {e.get("id") for e in cached_events if e.get("id")}
 
                 # 1. Check for new event IDs not present in cache
@@ -230,10 +223,10 @@ def get_cache_status(org_id, db_path, track_records_root, client=None):
     }
 
 
-def run_sync_and_diff(org_id, db_path, track_records_root, progress_cb=None):
+def run_sync_and_diff(org_id, storage, track_records_root, progress_cb=None):
     """Extract + normalize + diff for one org, against the already-synced cache
-    at db_path. Does NOT perform the Speedhive sync itself -- callers are
-    responsible for refreshing db_path first if needed (e.g. via the generic
+    in storage. Does NOT perform the Speedhive sync itself -- callers are
+    responsible for refreshing storage first if needed (e.g. via the generic
     refresh_org_cache machinery). Returns a summary dict.
     """
     def report(phase):
@@ -241,12 +234,11 @@ def run_sync_and_diff(org_id, db_path, track_records_root, progress_cb=None):
             progress_cb(phase)
 
     p = paths_for_org(track_records_root, org_id)
-    db_path = Path(db_path)
-    if not db_path.exists():
-        raise RuntimeError(f"No cache at {db_path}; sync the org first.")
+    if not storage.org_has_sessions(org_id):
+        raise RuntimeError(f"No cache for org {org_id}; sync the org first.")
 
     report("Extracting announcer-flagged records")
-    raw_records = extract_records_from_storage(org_id, db_path)
+    raw_records = storage.get_track_records(org_id)
 
     report("Normalizing and diffing against curated records")
     alias_map = load_json(p["alias_map"], {"aliases": {}, "always_review": []})
@@ -372,7 +364,7 @@ def run_sync_and_diff(org_id, db_path, track_records_root, progress_cb=None):
 def refresh_and_scan(
     org_id,
     client,
-    db_path,
+    storage,
     track_records_root,
     *,
     mode: str = "incremental",
@@ -392,7 +384,7 @@ def refresh_and_scan(
         if progress_cb:
             progress_cb(phase)
 
-    status = get_cache_status(org_id, db_path, track_records_root, client=client)
+    status = get_cache_status(org_id, storage, track_records_root, client=client)
     refresh_result = None
     if force or status["needs_sync"]:
         report("Refreshing Speedhive cache")
@@ -403,14 +395,14 @@ def refresh_and_scan(
             max_events=max_events,
             recent_backfill_events=recent_backfill_events if mode != "full" else 0,
             cleanup_on_full=cleanup_on_full,
-            db_path=db_path,
+            storage=storage,
         )
     else:
         age_str = f"{status['age_hours']:.1f}h" if status.get("age_hours") is not None else "unknown age"
         report(f"Speedhive cache is fresh ({age_str} old), skipping refresh")
 
     report("Scanning cached Speedhive data for track records")
-    scan_result = run_sync_and_diff(org_id, db_path, track_records_root, progress_cb=progress_cb)
+    scan_result = run_sync_and_diff(org_id, storage, track_records_root, progress_cb=progress_cb)
     return {
         "status": status,
         "refresh": refresh_result,

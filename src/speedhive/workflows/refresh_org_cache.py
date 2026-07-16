@@ -77,7 +77,7 @@ def refresh_org_cache(
     max_events: Optional[int] = None,
     recent_backfill_events: int = 0,
     cleanup_on_full: bool = True,
-    db_path: Optional[Path] = None,
+    storage: SpeedhiveStorage,
 ) -> Dict[str, Any]:
     """Refresh cache for one organization.
 
@@ -88,10 +88,6 @@ def refresh_org_cache(
     mode = (mode or "incremental").strip().lower()
     if mode not in {"full", "incremental"}:
         raise ValueError("mode must be 'full' or 'incremental'")
-
-    storage = SpeedhiveStorage(db_path) if db_path else None
-    if storage is None:
-        raise ValueError("db_path is required")
 
     previous_state = storage.get_refresh_state(org_id).payload
     if not isinstance(previous_state, dict):
@@ -231,13 +227,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     client = SpeedhiveClient.create(token=args.token)
+    storage = SpeedhiveStorage(args.db_path)
     summary = refresh_org_cache(
         client=client,
         org_id=args.org,
         mode=args.mode,
         max_events=args.max_events,
         recent_backfill_events=args.recent_backfill_events,
-        db_path=args.db_path,
+        storage=storage,
     )
     print(
         json.dumps(
