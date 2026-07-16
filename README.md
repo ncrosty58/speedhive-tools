@@ -145,15 +145,16 @@ scan = curation.run_sync_and_diff(30476, storage, "./web_data/track_records")
 By default, extraction uses the regex-based `parse_track_record_text`, which
 only catches one exact announcer phrasing. Pass a `bulk_parser` (one call
 covering every announcement text for the org, aligned by position) to use an
-LLM instead — see `speedhive.utils.llm_track_records` for the provider-agnostic
-prompt/schema/parsing logic, and `app/llm.py` in speedhive-tools-ui for the
-Gemini wiring. `run_sync_and_diff`/`storage.get_track_records` also accept a
-`parse_cache` (announcement identity -> cached result) plus an `on_parsed`
-callback, so repeat scans only pay for genuinely new announcements instead of
-re-parsing an org's entire history every time:
+LLM instead — `speedhive.llm` has the Gemini client (config via
+`GEMINI_API_KEY`/`GEMINI_MODEL` env vars) and `speedhive.utils.llm_track_records`
+has the provider-agnostic prompt/schema/parsing logic. `run_sync_and_diff`/
+`storage.get_track_records` also accept a `parse_cache` (announcement identity
+-> cached result) plus an `on_parsed` callback, so repeat scans only pay for
+genuinely new announcements instead of re-parsing an org's entire history
+every time:
 
 ```python
-from app.llm import parse_track_records_bulk_with_gemini
+from speedhive.llm import parse_track_records_bulk_with_gemini
 
 scan = curation.run_sync_and_diff(
     30476, storage, "./web_data/track_records",
@@ -212,6 +213,7 @@ speedhive refresh-track-records --org 30476
 | `SPEEDHIVE_DB_PATH` | Default SQLite cache path used by CLI commands |
 | `TRACK_RECORDS_STALE_HOURS` | How old the cache can be before `get_cache_status` reports `needs_sync` (default `20`) |
 | `GOTIFY_URL`, `GOTIFY_APP_TOKEN` | Optional push notification when new track-record candidates are found |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Gemini credentials for `speedhive.llm`'s LLM-based track-record parser (default model `gemini-2.5-flash`) |
 
 ---
 
