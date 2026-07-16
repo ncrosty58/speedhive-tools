@@ -6,7 +6,7 @@ from collections import defaultdict
 from typing import Dict, List, Optional
 
 from speedhive.analyzers.analyze_consistency import matches_session_type
-from speedhive.utils.lap_analysis import first_non_empty
+from speedhive.utils.lap_analysis import first_non_empty, normalize_name
 
 
 def _build_pos_class_map(results_rows: List[Dict]) -> Dict[int, str]:
@@ -160,3 +160,50 @@ def compute_avg_lap_by_class_year(
                 counts[cls].append(0)
 
     return {"years": years, "classes": classes, "series": series, "counts": counts}
+
+
+def compute_participation_by_year(
+    enriched: Dict[str, Dict],
+    session_map: Dict[str, Dict],
+    session_types: Optional[List[str]] = None,
+) -> Dict:
+    """Distinct-driver headcount by year, combined across every car class --
+    "how many different people raced with us this year," not total laps or
+    total entries. A driver racing in multiple classes/sessions the same
+    year is counted once for that year.
+
+    Unlike compute_avg_lap_by_class_year, this needs no per-competitor class
+    lookup (results_map) since classes aren't broken out here.
+
+    Returns {"years": [int, ...], "distinct_drivers": [int, ...]} -- values
+    positionally aligned with "years".
+    """
+    if not session_types:
+        session_types = ["race"]
+
+    drivers_by_year: Dict[int, set] = defaultdict(set)
+
+    for key, value in enriched.items():
+        sess_match = re.match(r"session(\d+)_pos(\d+)", key)
+        if not sess_match:
+            continue
+        sid = sess_match.group(1)
+        session_raw = session_map.get(sid, {})
+        if not any(matches_session_type(session_raw, t) for t in session_types):
+            continue
+
+        year = _session_year(session_raw)
+        name = value.get("name")
+        if year is None or not name:
+            continue
+
+        # Normalized (not fuzzy-clustered) so trivial spelling/case variants
+        # of the same person aren't double-counted -- same bar used for
+        # curated/rejected identity matching elsewhere in this codebase.
+        drivers_by_year[year].add(normalize_name(name))
+
+    years = sorted(drivers_by_year.keys())
+    return {
+        "years": years,
+        "distinct_drivers": [len(drivers_by_year[year]) for year in years],
+    }
