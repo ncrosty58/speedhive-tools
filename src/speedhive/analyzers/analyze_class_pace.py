@@ -194,3 +194,90 @@ def compute_participation_by_year(
         "years": years,
         "distinct_drivers": [len(drivers_by_year[year]) for year in years],
     }
+
+
+def compute_participation_by_class_year(
+    enriched: Dict[str, Dict],
+    session_map: Dict[str, Dict],
+    results_map: Dict[str, List[Dict]],
+    session_types: Optional[List[str]] = None,
+    max_classes: int = 10,
+) -> Dict:
+    """Distinct-driver headcount per (car class, year) -- ranks classes by
+    their average annual participation, and supplies each class's own
+    year-by-year headcount for drill-down.
+
+    A class's average only counts years it actually had participants; a year
+    with zero is excluded from the average rather than counted as a 0 --
+    otherwise a class that started recently or folded early would look
+    weaker than one that merely ran every year in the dataset.
+
+    Returns {"classes": [str, ...], "avg_participants": [float, ...],
+    "years_by_class": {class_name: [int, ...]},
+    "participants_by_class": {class_name: [int, ...]}} -- classes ordered
+    by average annual participants, descending, capped to max_classes.
+    years_by_class/participants_by_class are positionally aligned per class
+    and only list years that class actually had participants in.
+    """
+    if not session_types:
+        session_types = ["race"]
+
+    drivers_by_class_year: Dict[str, Dict[int, set]] = defaultdict(lambda: defaultdict(set))
+    label_counts: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    pos_class_cache: Dict[str, Dict[int, str]] = {}
+
+    for key, value in enriched.items():
+        sess_match = re.match(r"session(\d+)_pos(\d+)", key)
+        if not sess_match:
+            continue
+        sid, pos = sess_match.group(1), int(sess_match.group(2))
+        session_raw = session_map.get(sid, {})
+        if not any(matches_session_type(session_raw, t) for t in session_types):
+            continue
+
+        if sid not in pos_class_cache:
+            pos_class_cache[sid] = _build_pos_class_map(results_map.get(sid))
+        raw_class = pos_class_cache[sid].get(pos)
+        year = session_year(session_raw)
+        name = value.get("name")
+        if not raw_class or year is None or not name:
+            continue
+
+        group_key = _class_group_key(raw_class)
+        drivers_by_class_year[group_key][year].add(normalize_name(name))
+        label_counts[group_key][raw_class] += 1
+
+    display_label = {
+        group_key: max(labels.items(), key=lambda pair: pair[1])[0]
+        for group_key, labels in label_counts.items()
+    }
+
+    avg_by_group = {
+        group_key: sum(len(s) for s in by_year.values()) / len(by_year)
+        for group_key, by_year in drivers_by_class_year.items()
+        if by_year
+    }
+
+    group_keys = sorted(avg_by_group, key=lambda k: avg_by_group[k], reverse=True)
+    if max_classes is not None:
+        group_keys = group_keys[:max_classes]
+
+    classes: List[str] = []
+    avg_participants: List[float] = []
+    years_by_class: Dict[str, List[int]] = {}
+    participants_by_class: Dict[str, List[int]] = {}
+    for group_key in group_keys:
+        cls = display_label[group_key]
+        classes.append(cls)
+        avg_participants.append(round(avg_by_group[group_key], 1))
+        by_year = drivers_by_class_year[group_key]
+        sorted_years = sorted(by_year.keys())
+        years_by_class[cls] = sorted_years
+        participants_by_class[cls] = [len(by_year[y]) for y in sorted_years]
+
+    return {
+        "classes": classes,
+        "avg_participants": avg_participants,
+        "years_by_class": years_by_class,
+        "participants_by_class": participants_by_class,
+    }
