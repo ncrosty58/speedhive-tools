@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Generator, Iterable, Optional, Tuple
+from typing import Any, Callable, Dict, Generator, Iterable, List, Optional, Tuple
 
 
 def _utc_now_iso() -> str:
@@ -24,6 +25,14 @@ def _json_loads(payload: Optional[str]) -> Any:
         return json.loads(payload)
     except Exception:
         return None
+
+
+def _announcement_scan_key(session_id: Any, text: str) -> str:
+    """Stable content-based identity for one announcement, used to cache
+    parse results across scans. Content-based (not position/count-based) so
+    it's unaffected by whether an existing session's announcement list is
+    ever reordered or has entries inserted rather than only appended."""
+    return hashlib.sha1(f"{session_id}:{text}".encode("utf-8")).hexdigest()
 
 
 def _first_non_empty(*values: Any) -> Any:
@@ -755,9 +764,38 @@ class SpeedhiveStorage:
             "refreshed_sessions": refreshed_sessions,
         }
 
-    def get_track_records(self, org: int, classification: str | None = None) -> List[Dict[str, Any]]:
-        """Query and parse track records from storage for the specified organization."""
+    def get_track_records(
+        self,
+        org: int,
+        classification: str | None = None,
+        parser: Optional[Callable[[str], Optional[Dict[str, Any]]]] = None,
+        bulk_parser: Optional[Callable[[List[str]], List[Optional[Dict[str, Any]]]]] = None,
+        parse_cache: Optional[Dict[str, Optional[Dict[str, Any]]]] = None,
+        on_parsed: Optional[Callable[[str, Optional[Dict[str, Any]]], None]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Query and parse track records from storage for the specified organization.
+
+        `parser` defaults to the regex-based parse_track_record_text, but can be
+        swapped for an alternative (e.g. an LLM-based parser) with the same
+        text-in/dict-or-None-out signature.
+
+        `bulk_parser`, if given, takes priority over `parser`: it receives every
+        announcement text across the whole org in one list and returns a
+        position-aligned list of parsed-record-or-None, letting the caller make
+        a single LLM call for the entire org instead of one call per text.
+
+        `parse_cache`, if given, maps announcement_scan_key(session_id, text) ->
+        a previously-parsed result (or None). Announcements found in the cache
+        skip parser/bulk_parser entirely -- only genuinely new announcements are
+        actually parsed. `on_parsed(key, result)` is called once per such new
+        announcement so the caller can persist it into their cache. The returned
+        records list always reflects every announcement (cached + freshly
+        parsed), so callers relying on a complete history (e.g. re-diffing
+        against curated/rejected) see the exact same output either way.
+        """
         from speedhive.utils.lap_analysis import extract_iso_date, parse_track_record_text
+
+        parse_fn = parser or parse_track_record_text
 
         if not self.org_has_sessions(org):
             return []
@@ -766,9 +804,9 @@ class SpeedhiveStorage:
         event_map = self.load_event_payloads(org)
         announcements_map = self.load_announcements_payloads(org)
 
-        records: List[Dict[str, Any]] = []
-        wanted_class = classification.upper() if classification else None
-
+        # Collect (context, text) for every announcement first -- needed either
+        # way, but only actually required up front for the bulk_parser path.
+        items: List[Dict[str, Any]] = []
         for session_id, announcements in announcements_map.items():
             session_raw = session_map.get(session_id, {})
             event_id = (
@@ -790,33 +828,66 @@ class SpeedhiveStorage:
                 if not isinstance(announcement, dict):
                     continue
                 text = announcement.get("text") or announcement.get("message") or ""
-                parsed = parse_track_record_text(text)
-                if not parsed:
-                    continue
-                class_name = (parsed.get("classification") or "Unknown").upper()
-                if wanted_class and class_name != wanted_class:
-                    continue
-                timestamp = (
-                    announcement.get("timestamp")
-                    or announcement.get("time")
-                    or extract_iso_date(session_raw)
-                    or extract_iso_date(event_raw)
-                )
-                records.append(
-                    {
-                        "event_id": int(event_id) if event_id not in (None, "") else None,
-                        "event_name": event_name,
-                        "session_id": int(session_id),
-                        "session_name": session_name,
-                        "classification": parsed.get("classification"),
-                        "lap_time": parsed.get("lap_time"),
-                        "lap_time_seconds": parsed.get("lap_time_seconds"),
-                        "driver": parsed.get("driver"),
-                        "marque": parsed.get("marque"),
-                        "timestamp": timestamp,
-                        "text": text,
-                    }
-                )
+                items.append({
+                    "session_id": session_id,
+                    "event_id": event_id,
+                    "event_name": event_name,
+                    "session_name": session_name,
+                    "text": text,
+                    "key": _announcement_scan_key(session_id, text),
+                    "timestamp": (
+                        announcement.get("timestamp")
+                        or announcement.get("time")
+                        or extract_iso_date(session_raw)
+                        or extract_iso_date(event_raw)
+                    ),
+                })
+
+        parsed_list: List[Optional[Dict[str, Any]]] = [None] * len(items)
+        to_parse_indices: List[int] = []
+        for i, item in enumerate(items):
+            if parse_cache is not None and item["key"] in parse_cache:
+                parsed_list[i] = parse_cache[item["key"]]
+            else:
+                to_parse_indices.append(i)
+
+        if to_parse_indices:
+            to_parse_texts = [items[i]["text"] for i in to_parse_indices]
+            if bulk_parser is not None:
+                fresh_results = bulk_parser(to_parse_texts)
+            else:
+                fresh_results = [parse_fn(text) for text in to_parse_texts]
+            for i, result in zip(to_parse_indices, fresh_results):
+                parsed_list[i] = result
+                if on_parsed is not None:
+                    on_parsed(items[i]["key"], result)
+
+        records: List[Dict[str, Any]] = []
+        wanted_class = classification.upper() if classification else None
+
+        for item, parsed in zip(items, parsed_list):
+            if not parsed:
+                continue
+            class_name = (parsed.get("classification") or "Unknown").upper()
+            if wanted_class and class_name != wanted_class:
+                continue
+            event_id = item["event_id"]
+            records.append(
+                {
+                    "event_id": int(event_id) if event_id not in (None, "") else None,
+                    "event_name": item["event_name"],
+                    "session_id": int(item["session_id"]),
+                    "session_name": item["session_name"],
+                    "classification": parsed.get("classification"),
+                    "lap_time": parsed.get("lap_time"),
+                    "lap_time_seconds": parsed.get("lap_time_seconds"),
+                    "driver": parsed.get("driver"),
+                    "marque": parsed.get("marque"),
+                    "llm_uncertain": parsed.get("llm_uncertain"),
+                    "timestamp": item["timestamp"],
+                    "text": item["text"],
+                }
+            )
 
         records.sort(key=lambda row: ((row.get("classification") or "").upper(), row.get("lap_time_seconds") or float("inf")))
         return records

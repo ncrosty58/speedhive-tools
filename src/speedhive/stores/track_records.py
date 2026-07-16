@@ -20,6 +20,7 @@ def paths_for_org(track_records_root: Path, org_id: int) -> Dict[str, Path]:
         "candidates": d / "candidates_pending.ndjson",
         "rejected": d / "rejected.ndjson",
         "alias_map": d / "class_alias_map.json",
+        "parse_cache": d / "announcement_parse_cache.json",
         "history": d / "history",
         "tasks": d / "tasks",
     }
@@ -62,3 +63,11 @@ def load_rejected(p):
 
 def save_rejected(p, doc):
     save_ndjson(p["rejected"], doc, "rejected")
+
+
+def load_parse_cache(p):
+    return load_json(p["parse_cache"], {"engine": None, "cache": {}})
+
+
+def save_parse_cache(p, doc):
+    save_json(p["parse_cache"], doc)
