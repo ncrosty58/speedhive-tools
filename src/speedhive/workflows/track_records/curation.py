@@ -55,6 +55,10 @@ def lap_time_to_seconds(lap_time):
     if not lap_time:
         return None
     parts = str(lap_time).split(":")
+    if len(parts) > 2:
+        # e.g. "1:17:917" (colon typo'd in place of the ms period) -- a
+        # truncated float(parts[0]) would silently produce an absurd record
+        return None
     try:
         if len(parts) == 2:
             return int(parts[0]) * 60 + float(parts[1])

@@ -57,3 +57,23 @@ def test_parse_track_record_text(text, expected):
         assert parsed.get(k) == v
     # lap_time_seconds should parse to a float
     assert isinstance(parsed.get("lap_time_seconds"), (float, type(None)))
+
+
+@pytest.mark.parametrize(
+    "lap_time,expected",
+    [
+        ("1:17.917", 77.917),
+        ("63.004", 63.004),
+        # colon typo'd in place of the ms period must be rejected, not
+        # truncated to float(parts[0]) -- a "1.0s" class record poisons
+        # build_curated_fastest_index
+        ("1:17:917", None),
+        ("", None),
+        (None, None),
+        ("junk", None),
+    ],
+)
+def test_lap_time_to_seconds(lap_time, expected):
+    from speedhive.workflows.track_records.curation import lap_time_to_seconds
+
+    assert lap_time_to_seconds(lap_time) == expected
