@@ -115,3 +115,52 @@ def test_aggregate_by_name_and_year_buckets_by_year():
     assert set(result["Jane Doe"].keys()) == {2020, 2024}
     assert result["Jane Doe"][2020]["lap_count"] == 25
     assert result["Jane Doe"][2024]["lap_count"] == 25
+
+
+def test_cluster_names_preserves_aggregate_cv():
+    # A driver whose sessions have very different within-session stdevs:
+    # the pooled stdev/mean is NOT the lap-weighted average of session CVs,
+    # so cluster_names must carry the aggregate's cv through its re-pooling
+    # instead of recomputing it from pooled stdev.
+    from speedhive.analyzers.analyze_consistency import aggregate_by_name, cluster_names
+
+    enriched = dict([
+        _entry(1, 1, "Jane Doe", lap_count=10, mean=100.0, stdev=40.0),  # CV=40%
+        _entry(2, 1, "Jane Doe", lap_count=90, mean=80.0, stdev=0.8),    # CV=1%
+    ])
+    session_map = {"1": _session(2020), "2": _session(2021)}
+
+    by_name = aggregate_by_name(enriched, session_map)
+    expected_cv = (10 * 0.40 + 90 * 0.01) / 100  # lap-weighted avg = 4.9%
+    assert abs(by_name["Jane Doe"]["cv"] - expected_cv) < 1e-9
+
+    clustered = cluster_names(by_name)
+    assert abs(clustered["Jane Doe"]["cv"] - expected_cv) < 1e-9
+
+
+def test_cluster_names_multi_alias_cv_is_lap_weighted_average():
+    from speedhive.analyzers.analyze_consistency import aggregate_by_name, cluster_names
+
+    enriched = dict([
+        _entry(1, 1, "Jane Doe", lap_count=30, mean=100.0, stdev=30.0),      # CV=30%
+        _entry(2, 1, "  JANE   DOE  ", lap_count=70, mean=80.0, stdev=1.6),  # CV=2%
+    ])
+    session_map = {"1": _session(2020), "2": _session(2021)}
+
+    by_name = aggregate_by_name(enriched, session_map)
+    clustered = cluster_names(by_name)
+    assert len(clustered) == 1
+    expected_cv = (30 * 0.30 + 70 * 0.02) / 100  # 10.4%
+    assert abs(next(iter(clustered.values()))["cv"] - expected_cv) < 1e-9
+
+
+def test_pool_weighted_stats_uses_carried_cv():
+    from speedhive.analyzers.analyze_consistency import _pool_weighted_stats
+
+    # 4-tuple parts: carried cv wins over stdev/mean recomputation
+    pooled = _pool_weighted_stats([(10, 100.0, 40.0, 0.05), (10, 100.0, 40.0, 0.03)])
+    assert abs(pooled["cv"] - 0.04) < 1e-9
+
+    # 3-tuple parts keep the session-level stdev/mean behavior
+    pooled = _pool_weighted_stats([(10, 100.0, 5.0), (10, 100.0, 3.0)])
+    assert abs(pooled["cv"] - 0.04) < 1e-9

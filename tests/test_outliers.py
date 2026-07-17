@@ -1,29 +1,32 @@
-import pytest
-from pathlib import Path
-import tempfile
-import gzip
-import json
-import statistics
 
-from speedhive.utils.lap_analysis import filter_outliers_iqr, compute_laps_and_enriched, compute_lap_statistics
+from speedhive.utils.lap_analysis import filter_outlier_laps, compute_lap_statistics
 from speedhive.analyzers.analyze_consistency import get_consistency_rankings
 
-def test_filter_outliers_iqr():
+def test_filter_outlier_laps():
     # Less than 4 laps, should return unchanged
     laps_short = [50.0, 51.0, 52.0]
-    assert filter_outliers_iqr(laps_short) == laps_short
+    assert filter_outlier_laps(laps_short) == laps_short
 
-    # Normal laps with one extreme slow outlier (e.g. pit stop or crash)
-    # Q1 = 50.5, Q3 = 51.5, IQR = 1.0. Upper bound = 51.5 + 1.5 * 1.0 = 53.0
+    # Normal laps with one extreme slow outlier (e.g. pit stop or crash).
+    # Median = 51.0, cutoff = 1.30 * 51.0 = 66.3
     laps = [50.0, 51.0, 52.0, 50.0, 51.0, 52.0, 120.0]
-    filtered = filter_outliers_iqr(laps)
+    filtered = filter_outlier_laps(laps)
     assert 120.0 not in filtered
     assert len(filtered) == 6
-    assert all(x < 53.0 for x in filtered)
+
+    # Short interrupted race: 3 of 10 laps under caution. The old IQR fence
+    # absorbed these (quartiles get dragged up); the median rule must not.
+    caution_race = [78.3, 78.4, 78.5, 78.6, 78.8, 79.0, 83.1, 149.4, 185.2, 187.7]
+    filtered = filter_outlier_laps(caution_race)
+    assert filtered == [78.3, 78.4, 78.5, 78.6, 78.8, 79.0, 83.1]
+
+    # Implausibly fast lap (timing glitch / missed loop) is dropped too
+    glitch = [30.0, 80.0, 80.5, 81.0, 80.2]
+    assert 30.0 not in filter_outlier_laps(glitch)
 
     # All identical laps
     laps_same = [50.0, 50.0, 50.0, 50.0]
-    assert filter_outliers_iqr(laps_same) == laps_same
+    assert filter_outlier_laps(laps_same) == laps_same
 
 def test_compute_lap_statistics_outliers():
     # 5 normal laps, 1 outlier (150 seconds)
@@ -61,3 +64,60 @@ def test_get_consistency_rankings():
     assert len(top) == 2
     assert top[0]["name"] == "Driver A" # lowest CV (0.01 < 0.05)
     assert least[0]["name"] == "Driver B" # highest CV (0.05 > 0.01)
+
+
+def test_dedupe_session_ids():
+    from speedhive.utils.lap_analysis import dedupe_session_ids
+
+    laps_a = [{"position": 1, "laps": [{"lapNumber": 1, "lapTime": "50.0"}]}]
+    results_a = [{"name": "Jane Doe", "position": 1}]
+    # same event synced twice: identical laps payloads under two session ids
+    keep = dedupe_session_ids(
+        {"100": results_a, "200": list(results_a), "300": [{"name": "Bob", "position": 1}]},
+        {"100": laps_a, "200": list(laps_a), "300": [{"position": 1, "laps": [{"lapNumber": 1, "lapTime": "61.0"}]}]},
+    )
+    assert keep == {"100", "300"}
+
+    # duplicate laps win over trivially differing results (real dup pairs exist
+    # whose results diverge in minor fields while lap data is byte-identical)
+    keep = dedupe_session_ids(
+        {"100": results_a, "200": [{"name": "Jane Doe", "position": 1, "isQualified": True}]},
+        {"100": laps_a, "200": list(laps_a)},
+    )
+    assert keep == {"100"}
+
+    # no laps: fall back to results equality
+    keep = dedupe_session_ids({"100": results_a, "200": list(results_a)}, {})
+    assert keep == {"100"}
+
+    # empty payloads are never treated as duplicates of each other
+    keep = dedupe_session_ids({"100": [], "200": []}, {})
+    assert keep == {"100", "200"}
+
+
+def test_first_lap_and_duplicates_excluded_from_enriched():
+    from speedhive.utils.lap_analysis import _compute_laps_and_enriched_from_payloads
+
+    def lap_rows(times):
+        return [{"position": 1, "laps": [
+            {"lapNumber": i + 1, "lapTime": str(t)} for i, t in enumerate(times)
+        ]}]
+
+    sessions = {"1": {"name": "Race 1", "type": "race"}, "2": {"name": "Race 1", "type": "race"}}
+    results = {
+        "1": [{"name": "Jane Doe", "position": 1}],
+        "2": [{"name": "Jane Doe", "position": 1}],
+    }
+    # session 2 is a byte-identical duplicate of session 1
+    laps = {
+        "1": lap_rows([55.0, 50.0, 50.2, 50.4, 50.6]),
+        "2": lap_rows([55.0, 50.0, 50.2, 50.4, 50.6]),
+    }
+
+    laps_by_driver, enriched = _compute_laps_and_enriched_from_payloads(sessions, results, laps)
+
+    # duplicate session dropped entirely
+    assert "session2_pos1" not in enriched
+    # standing-start lap 1 (55.0) excluded from collected laps
+    assert laps_by_driver["session1_pos1"] == [50.0, 50.2, 50.4, 50.6]
+    assert enriched["session1_pos1"]["lap_count"] == 4

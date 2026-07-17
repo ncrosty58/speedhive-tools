@@ -5,12 +5,14 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 from speedhive.analyzers.analyze_consistency import cluster_name_groups, matches_session_type
+from speedhive.utils.lap_analysis import dedupe_session_ids
 
 
 def compute_wins_and_podiums(
     results_payloads: Dict[str, List[Any]],
     session_map: Dict[str, Dict],
     session_types: Optional[List[str]] = None,
+    laps_payloads: Optional[Dict[str, List[Any]]] = None,
 ) -> Dict[str, Dict]:
     """Per-driver-name (unclustered) start/win/podium counts from class
     finishing position, across every synced session matching session_types.
@@ -29,10 +31,11 @@ def compute_wins_and_podiums(
     if not session_types:
         session_types = ["race"]
 
+    keep_sids = dedupe_session_ids(results_payloads, laps_payloads)
     counts: Dict[str, Dict[str, int]] = defaultdict(lambda: {"wins": 0, "podiums": 0, "starts": 0})
 
     for sid, rows in results_payloads.items():
-        if not isinstance(rows, list):
+        if sid not in keep_sids or not isinstance(rows, list):
             continue
         session_raw = session_map.get(sid, {})
         if not any(matches_session_type(session_raw, t) for t in session_types):
@@ -72,13 +75,14 @@ def get_wins_podiums_rankings(
     session_types: Optional[List[str]] = None,
     min_starts: int = 3,
     limit: int = 15,
+    laps_payloads: Optional[Dict[str, List[Any]]] = None,
 ) -> Tuple[List[Dict], List[Dict]]:
     """Cluster driver name variants, sum wins/podiums/starts across aliases,
     drop anyone under min_starts (a single lucky class win in a one-off
     entry shouldn't top the board), and return (most_wins, most_podiums),
     each sorted descending and limited to `limit`.
     """
-    raw = compute_wins_and_podiums(results_payloads, session_map, session_types=session_types)
+    raw = compute_wins_and_podiums(results_payloads, session_map, session_types=session_types, laps_payloads=laps_payloads)
     groups = cluster_name_groups(raw, threshold=0.85)
 
     rows = []

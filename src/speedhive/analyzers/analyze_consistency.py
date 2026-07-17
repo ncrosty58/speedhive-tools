@@ -88,27 +88,34 @@ def matches_session_type(session_raw: Dict, session_type: str) -> bool:
         return is_race_session(session_raw)
 
 
-def _pool_weighted_stats(parts: List[Tuple[int, float, float]]) -> Dict[str, Any]:
-    """Pool (lap_count, mean, stdev) tuples into one lap-count-weighted
-    {lap_count, mean, stdev, cv}. Shared by every aggregation below that
-    combines several sessions'/years'/aliases' worth of stats for the same
-    driver into one summary.
+def _pool_weighted_stats(parts: List[Tuple]) -> Dict[str, Any]:
+    """Pool (lap_count, mean, stdev) or (lap_count, mean, stdev, cv) tuples
+    into one lap-count-weighted {lap_count, mean, stdev, cv}. Shared by every
+    aggregation below that combines several sessions'/years'/aliases' worth
+    of stats for the same driver into one summary.
+
+    3-tuples are session-level parts, where stdev/mean IS the session CV.
+    4-tuples are already-pooled aggregates being pooled again: their carried
+    cv (a weighted average of session CVs) must be used directly, because
+    recomputing stdev/mean at this level mixes between-session variance back
+    in and inflates the result.
     """
-    total_laps = sum(n for n, _, _ in parts)
-    pooled_mean = sum(n * m for n, m, _ in parts) / total_laps
+    total_laps = sum(p[0] for p in parts)
+    pooled_mean = sum(p[0] * p[1] for p in parts) / total_laps
 
     # Pool variance within sessions only (exclude between-session pace differences)
-    numer = sum((n - 1) * (stdev_v ** 2) for n, _, stdev_v in parts)
-    denom = sum(n - 1 for n, _, _ in parts)
+    numer = sum((p[0] - 1) * (p[2] ** 2) for p in parts)
+    denom = sum(p[0] - 1 for p in parts)
     pooled_var = numer / denom if denom > 0 else 0.0
     pooled_stdev = math.sqrt(pooled_var) if pooled_var > 0 else 0.0
 
     # Calculate pooled CV as scale-invariant weighted average of session CVs
     cv_numer = 0.0
     cv_denom = 0.0
-    for n, mean_v, stdev_v in parts:
-        if mean_v > 0:
-            cv_v = stdev_v / mean_v
+    for p in parts:
+        n, mean_v, stdev_v = p[0], p[1], p[2]
+        cv_v = p[3] if len(p) > 3 and p[3] is not None else (stdev_v / mean_v if mean_v > 0 else None)
+        if cv_v is not None:
             cv_numer += n * cv_v
             cv_denom += n
     pooled_cv = (cv_numer / cv_denom) if cv_denom > 0 else None
@@ -218,6 +225,40 @@ def aggregate_by_name_and_year(
     return dict(by_name_year)
 
 
+SURNAME_MIN_LEN = 6
+FIRST_NAME_MIN_LEN = 3
+FIRST_NAME_PREFIX_LEN = 2
+SURNAME_MATCH_RATIO = 0.9
+
+
+def _nickname_surname_score(normalized_a: str, normalized_b: str) -> float:
+    """Score for "nickname first name, matching distinctive surname" pairs
+    (e.g. "Alejandro Della Torre" vs "Alex DellaTorre") that the whole-string
+    ratio in cluster_name_groups underrates, since a first-name length delta
+    dominates a comparison across the full string. Only fires when the
+    surname alone is long/distinctive enough that a near-exact match is
+    unlikely to be a coincidence, and the first names share a short prefix
+    (the common signature of a nickname/shortened/localized first-name
+    variant) -- both required so this doesn't merge different people who
+    happen to share a common surname (e.g. "Alan Smith" / "Bob Smith").
+    Returns the surname match ratio if the pair qualifies, else 0.0.
+    """
+    parts_a = normalized_a.split(" ", 1)
+    parts_b = normalized_b.split(" ", 1)
+    if len(parts_a) != 2 or len(parts_b) != 2:
+        return 0.0
+    first_a, last_a = parts_a
+    first_b, last_b = parts_b
+    if len(last_a) < SURNAME_MIN_LEN or len(last_b) < SURNAME_MIN_LEN:
+        return 0.0
+    if len(first_a) < FIRST_NAME_MIN_LEN or len(first_b) < FIRST_NAME_MIN_LEN:
+        return 0.0
+    if first_a[:FIRST_NAME_PREFIX_LEN] != first_b[:FIRST_NAME_PREFIX_LEN]:
+        return 0.0
+    last_ratio = difflib.SequenceMatcher(None, last_a, last_b).ratio()
+    return last_ratio if last_ratio >= SURNAME_MATCH_RATIO else 0.0
+
+
 def cluster_name_groups(by_name: Dict[str, Dict], threshold: float = 0.85) -> Dict[str, List[str]]:
     """Group similar display names together by fuzzy similarity, without
     touching their stats -- returns {canonical_name: [alias names, incl.
@@ -235,11 +276,12 @@ def cluster_name_groups(by_name: Dict[str, Dict], threshold: float = 0.85) -> Di
         len_norm = len(normalized)
         for cluster in clusters:
             len_clust = len(cluster["norm"])
+            score = 0.0
             # Quick length-based heuristic filter to skip expensive SequenceMatcher ratio
             max_ratio = (2.0 * min(len_norm, len_clust)) / (len_norm + len_clust) if (len_norm + len_clust) > 0 else 0.0
-            if max_ratio < threshold or max_ratio <= best_score:
-                continue
-            score = difflib.SequenceMatcher(None, normalized, cluster["norm"]).ratio()
+            if max_ratio >= threshold and max_ratio > best_score:
+                score = difflib.SequenceMatcher(None, normalized, cluster["norm"]).ratio()
+            score = max(score, _nickname_surname_score(normalized, cluster["norm"]))
             if score > best_score:
                 best_score = score
                 best_cluster = cluster
@@ -264,7 +306,7 @@ def cluster_names(by_name: Dict[str, Dict], threshold: float = 0.85) -> Dict[str
             mean_v = float(stats.get("mean") or 0.0)
             stdev_v = float(stats.get("stdev") or 0.0)
             if n > 0:
-                parts.append((n, mean_v, stdev_v))
+                parts.append((n, mean_v, stdev_v, stats.get("cv")))
         if not parts:
             continue
         pooled = _pool_weighted_stats(parts)
@@ -340,12 +382,12 @@ def get_most_improved_rankings(
     # one person here.
     by_name_year: Dict[str, Dict[int, Dict]] = {}
     for canonical, data in clusters.items():
-        years: Dict[int, List[Tuple[int, float, float]]] = defaultdict(list)
+        years: Dict[int, List[Tuple]] = defaultdict(list)
         for alias in data.get("aliases", [canonical]):
             for year, stats in by_name_year_raw.get(alias, {}).items():
                 n = stats.get("lap_count", 0)
                 if n > 0:
-                    years[year].append((n, stats["mean"], stats["stdev"]))
+                    years[year].append((n, stats["mean"], stats["stdev"], stats.get("cv")))
         if years:
             by_name_year[canonical] = {year: _pool_weighted_stats(parts) for year, parts in years.items()}
 

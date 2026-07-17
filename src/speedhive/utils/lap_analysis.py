@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 from difflib import SequenceMatcher
+import hashlib
+import json
 import re
 from collections import defaultdict
 from datetime import datetime
@@ -183,21 +185,73 @@ def _assign_key(row, sid: str, pos_map: Dict[int, str]) -> str:
     return key
 
 
-def filter_outliers_iqr(laps: List[float]) -> List[float]:
-    """Filter out outliers from a list of lap times using the IQR (Interquartile Range) method.
+OUTLIER_SLOW_FACTOR = 1.30
+OUTLIER_FAST_FACTOR = 0.50
 
-    Laps outside [Q1 - 1.5 * IQR, Q3 + 1.5 * IQR] are considered outliers.
+
+def filter_outlier_laps(laps: List[float]) -> List[float]:
+    """Filter non-racing laps using a session-median rule: drop laps slower
+    than 130% of the session median (cautions, pit cycles, spins) or faster
+    than 50% of it (timing glitches / missed loops).
+
+    Replaces an earlier IQR filter, which fails on short interrupted races:
+    when 3 of 10 laps are full-course-yellow laps the quartiles themselves
+    absorb them and the fence goes wide, so nothing gets removed and the
+    session's stdev/CV reads as driver inconsistency. The median stays
+    anchored to racing pace unless most of the race is interrupted -- in
+    which case the laps really do reflect the session and are kept.
     """
     if len(laps) < 4:
         return laps
-    sorted_laps = sorted(laps)
-    q = statistics.quantiles(sorted_laps, n=4)
-    q1 = q[0]
-    q3 = q[2]
-    iqr = q3 - q1
-    lower_bound = q1 - 1.5 * iqr
-    upper_bound = q3 + 1.5 * iqr
-    return [lap for lap in laps if lower_bound <= lap <= upper_bound]
+    med = statistics.median(laps)
+    if med <= 0:
+        return laps
+    return [lap for lap in laps if OUTLIER_FAST_FACTOR * med <= lap <= OUTLIER_SLOW_FACTOR * med]
+
+
+def dedupe_session_ids(
+    results_payloads: Dict[str, List[Any]],
+    laps_payloads: Optional[Dict[str, List[Any]]] = None,
+) -> set:
+    """Return the set of session ids to keep, dropping duplicated sessions.
+
+    Orgs sometimes have the same event synced twice under different event/
+    session ids; the copies carry byte-identical lap data (including per-lap
+    timeOfDay timestamps), so identical non-empty payload content under two
+    ids can only be the same session listed twice. Laps are the preferred
+    fingerprint (duplicate pairs exist whose results differ trivially while
+    laps match exactly); sessions without laps fall back to their results.
+    Sessions with no payload content are always kept -- emptiness is not
+    evidence of identity. Keeps the lowest id of each duplicate group so the
+    choice is stable across runs.
+    """
+    laps_payloads = laps_payloads or {}
+    keep = set()
+    groups: Dict[str, List[str]] = defaultdict(list)
+    for sid in set(results_payloads) | set(laps_payloads):
+        laps = laps_payloads.get(sid)
+        results = results_payloads.get(sid)
+        if laps:
+            payload = ("laps", laps)
+        elif results:
+            payload = ("results", results)
+        else:
+            keep.add(sid)
+            continue
+        fingerprint = hashlib.sha1(
+            json.dumps(payload, sort_keys=True, default=str).encode("utf8")
+        ).hexdigest()
+        groups[fingerprint].append(sid)
+
+    def _sid_sort_key(s):
+        try:
+            return (0, int(s))
+        except (TypeError, ValueError):
+            return (1, str(s))
+
+    for sids in groups.values():
+        keep.add(min(sids, key=_sid_sort_key))
+    return keep
 
 
 def _compute_laps_and_enriched_from_payloads(
@@ -205,7 +259,16 @@ def _compute_laps_and_enriched_from_payloads(
     results_payloads: Dict[str, List[Any]],
     laps_payloads: Dict[str, List[Any]],
     ignore_outliers: bool = False,
+    keep_sids: Optional[set] = None,
 ):
+    # keep_sids lets a caller that already fingerprinted the payloads (e.g.
+    # a cache layer that also needs the deduped results) skip paying for
+    # dedupe_session_ids twice
+    if keep_sids is None:
+        keep_sids = dedupe_session_ids(results_payloads, laps_payloads)
+    results_payloads = {sid: rows for sid, rows in results_payloads.items() if sid in keep_sids}
+    laps_payloads = {sid: rows for sid, rows in laps_payloads.items() if sid in keep_sids}
+
     session_pos_map = {sid: _build_pos_name_map(raw) for sid, raw in sessions.items()}
 
     for sid, rows in results_payloads.items():
@@ -225,6 +288,20 @@ def _compute_laps_and_enriched_from_payloads(
         existing = session_pos_map.get(sid, {})
         session_pos_map[sid] = {**existing, **mapping}
 
+    def _is_first_lap(lap_row) -> bool:
+        # Lap 1 starts from a standing/rolling start and grid position, not
+        # racing pace (~6.5% slower than the session median on average) --
+        # like pit laps, it measures the format of the session rather than
+        # the driver's lap-to-lap repeatability.
+        for field in ("lapNumber", "lap_number"):
+            v = lap_row.get(field)
+            if v is not None:
+                try:
+                    return int(v) == 1
+                except (TypeError, ValueError):
+                    return False
+        return False
+
     laps_by_driver = defaultdict(list)
     for sid, rows in laps_payloads.items():
         if not isinstance(rows, list):
@@ -242,7 +319,7 @@ def _compute_laps_and_enriched_from_payloads(
                     # an effect all-time pooling across many laps normally
                     # dilutes into invisibility but that a small single-year
                     # or single-session sample can't absorb.
-                    if lap.get("inPit") or lap.get("pit"):
+                    if lap.get("inPit") or lap.get("pit") or _is_first_lap(lap):
                         continue
                     t = None
                     for tf in ("lapTime", "lap_time", "time", "lapSeconds", "seconds"):
@@ -256,7 +333,7 @@ def _compute_laps_and_enriched_from_payloads(
                     laps_by_driver[key].append(t)
                 continue
 
-            if row.get("inPit") or row.get("pit"):
+            if row.get("inPit") or row.get("pit") or _is_first_lap(row):
                 continue
 
             t = None
@@ -275,7 +352,7 @@ def _compute_laps_and_enriched_from_payloads(
         if not isinstance(laps, list) or not laps:
             continue
         
-        filtered_laps = filter_outliers_iqr(laps) if ignore_outliers else laps
+        filtered_laps = filter_outlier_laps(laps) if ignore_outliers else laps
         if not filtered_laps:
             filtered_laps = laps
 
@@ -481,7 +558,7 @@ def compute_lap_statistics(laps: List[Dict[str, Any]], ignore_outliers: bool = F
             "cv_raw": None,
         }
 
-    filtered_times = filter_outliers_iqr(times) if ignore_outliers else times
+    filtered_times = filter_outlier_laps(times) if ignore_outliers else times
     if not filtered_times:
         filtered_times = times
 
