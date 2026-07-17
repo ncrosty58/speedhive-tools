@@ -1,124 +1,118 @@
 # speedhive-tools
 
-A Python client, SQLite persistence layer, and CLI for scraping and analyzing [MyLaps Speedhive](https://speedhive.com) racing results.
+A Python client, SQLite persistence layer, analyzers, and CLI for scraping and analyzing [MyLaps Speedhive](https://speedhive.mylaps.com) racing results. It powers the [`speedhive-tools-ui`](https://github.com/ncrosty58/speedhive-tools-ui) dashboard (which vendors it as a git submodule), but works standalone with no web UI required.
 
-It's the core engine behind the [`speedhive-tools-ui`](https://github.com/ncrosty58/speedhive-tools-ui) dashboard (vendored there as a git submodule), but works standalone as a library or command-line tool with no web UI required.
-
-## What it does
-
-- **Speedhive HTTP client** (`speedhive.wrapper.SpeedhiveClient`) — a hand-written, ergonomic wrapper around an OpenAPI-generated low-level client (`speedhive/generated/`) for organizations, events, sessions, results, laps, lap charts, announcements, and championships.
-- **SQLite cache** (`speedhive.storage.SpeedhiveStorage`) — local persistence for everything the client fetches, with per-entity save/read methods and org-scoped pruning.
-- **Org sync workflow** (`speedhive.workflows.refresh_org_cache`) — incremental or full re-sync of an organization into the cache, with configurable event caps and recent-event backfill.
-- **Per-org settings resolution** (`speedhive.settings`) — a single, reusable mechanism for "does this org have its own override for X, else fall back to a global default" (Gemini keys, parsing engine, min-laps), backed by `<SPEEDHIVE_DATA_DIR>/orgs/<org_id>/settings.json`. Shared by the CLI and any host application; has no notion of email/notification settings, since those are policy owned entirely by a host app like `speedhive-tools-ui`.
-- **Track-record curation** (`speedhive.workflows.track_records`) — parses announcer text for lap-record callouts (regex by default, optional Gemini LLM extraction via `speedhive.llm`, chosen per-org through `speedhive.settings`), normalizes classification names against an alias map, and maintains candidate/curated/rejected review queues per organization. Every manual edit to a curated record appends to that record's own edit history (what changed, when) rather than overwriting it silently.
-- **Analyzers** (`speedhive.analyzers`) — driver consistency rankings (mean/stdev/coefficient-of-variation, with optional IQR outlier filtering and fuzzy name clustering), per-driver lap extraction, and average-lap-by-class-and-year pace charts.
-- **NDJSON exporters/importers** (`speedhive.exporters`, `speedhive.workflows.import_sqlite_dump`) — portable dump/restore of an org's cache, lap records, track records, and curated records as newline-delimited JSON, individually or as a full ZIP-able dump.
-- **Unified CLI** (`speedhive`) — one entry point for all of the above; new exporter/workflow/analyzer modules that expose a `main(argv)` are auto-registered as subcommands (`speedhive.cli.discovery`).
-
-## Installation
+## Install
 
 ```bash
-pip install speedhive-tools
+pip install -e .            # library + `speedhive` CLI
+pip install -e ".[dev]"     # + pytest for development
 ```
 
-For development:
-```bash
-git clone https://github.com/ncrosty58/speedhive-tools.git
-cd speedhive-tools
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-```
+Requires Python 3.10+.
 
-## Data & configuration
+## What's in the package
 
-By default, the CLI and storage layer keep their SQLite cache and per-organization settings under a `./data` directory relative to the working directory (already gitignored). For anything unattended (cron, a systemd timer, a script), set `SPEEDHIVE_DATA_DIR` to a fixed absolute path explicitly rather than relying on that default — a relative path resolves differently depending on where the process happens to be invoked from.
+- **`speedhive.wrapper.SpeedhiveClient`** — ergonomic HTTP client over an OpenAPI-generated core (`speedhive/generated/`): organizations, events, sessions, results, laps, lap charts, announcements, championships.
+- **`speedhive.storage.SpeedhiveStorage`** — SQLite persistence for everything the client fetches, with per-entity save/read and org-scoped pruning.
+- **`speedhive.workflows`** — org sync (`refresh_org_cache`, incremental or full with event caps and recent-event backfill), NDJSON dump import (`import_sqlite_dump`), and the track-record curation pipeline (`track_records/`).
+- **`speedhive.analyzers`** — the statistics engines:
+  - `analyze_consistency` — per-driver lap-time consistency (mean / stdev / CV with outlier filtering and fuzzy name clustering), plus most-improved/most-declined rankings.
+  - `analyze_results` — race-results analysis: wins and podiums by class finishing position, and the all-drivers directory (starts/wins/podiums with precomputed ranks).
+  - `analyze_class_pace` — average lap time per class by year, and participation-by-year breakdowns.
+  - `analyze_driver_laps` — per-driver lap extraction.
+- **`speedhive.settings`** — per-org settings resolution backed by `<SPEEDHIVE_DATA_DIR>/orgs/<org_id>/settings.json`: an org's own override wins, else the global environment default applies (per-org env vars use a `NAME_<org_id>` suffix). Shared by the CLI and host apps, so both always agree on parser engine, Gemini credentials, and min-laps. Email settings are deliberately not part of this — email is host-app policy (`speedhive-tools-ui` uses Resend); the library's only built-in notification path is an optional Gotify push in the curation workflow.
+- **`speedhive.exporters`** — NDJSON exporters for every entity, lap records, curated records, and full portable dumps.
+- **`speedhive.llm`** — optional Gemini-based announcer-text extraction, selected per org via settings.
 
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `SPEEDHIVE_DATA_DIR` | Root directory for the cache and org settings. | `./data` |
-| `SPEEDHIVE_DB_PATH` | Explicit path to the SQLite cache file. | `<SPEEDHIVE_DATA_DIR>/speedhive.db` |
+## CLI
 
-Per-organization behavior (parser engine, minimum laps for stats, Gemini key/model overrides) is configured in `data/orgs/<org_id>/settings.json`, read/written through `speedhive.settings`. Run `speedhive configure --org <id>` for an interactive setup wizard covering exactly those settings, or copy [settings.json.example](settings.json.example) by hand. `GEMINI_API_KEY`/`GEMINI_MODEL` can be set globally (bare env var) or per-org (`overrides` block in `settings.json`, or a `GEMINI_API_KEY_<org_id>`-style env var), with the org-specific value taking precedence.
-
-Notification/email settings (Resend keys, recipient addresses) are **not** configured here — `speedhive-tools` has no code that sends email. That's entirely owned by `speedhive-tools-ui`; the CLI's `configure` wizard deliberately doesn't ask about them.
-
-## CLI reference
-
-Run `speedhive <command> --help` for full options on any of these:
+Everything is available as `speedhive <command>`:
 
 ```bash
-# Sync an organization's cache (full or incremental)
-speedhive sync-org --org 30476 --mode full
-speedhive sync-org --org 30476 --mode incremental --recent-backfill-events 5
+# Sync an org into the local SQLite cache (incremental by default)
+speedhive sync-org --org 30476
+speedhive sync-org --org 30476 --mode full --max-events 150
 
-# Driver consistency rankings
-speedhive report-consistency --org 30476 --min-laps 15 --ignore-outliers
+# Raw scrape straight to NDJSON files, no database
+speedhive export-dump --org 30476 --output ./dump
 
-# Fuzzy-match a driver and extract their laps
+# Analysis reports from the cache
+speedhive report-consistency --org 30476 --min-laps 20 --top 10 --ignore-outliers
 speedhive extract-driver-laps --org 30476 --driver "Jane Doe"
 
-# Track-record curation: sync (if stale) then scan for new candidates
-speedhive refresh-track-records --org 30476
-# ...or scan the existing cache only, without contacting Speedhive
+# Track records: refresh + scan, or scan the existing cache only
+speedhive refresh-track-records --org 30476 --mode incremental
 speedhive scan-track-records --org 30476
+speedhive export-track-records --org 30476 --output records.ndjson
 
-# Curated-record NDJSON import/export
+# Curated-list portability
 speedhive export-curated-track-records --org 30476 --output curated.ndjson
 speedhive import-curated-track-records --org 30476 --input curated.ndjson --mode merge
 
-# Offline dumps
-speedhive export-db-dump --org 30476 --output-dir ./output
-speedhive import-dump --org 30476 --dump-dir ./output
-speedhive export-dump --org 30476 --output ./output   # scrape straight to NDJSON, no DB required
-speedhive export-lap-records --org 30476 --max-events 25
+# Cache portability
+speedhive export-db-dump --org 30476 --output-dir ./backup
+speedhive import-dump --org 30476 --dump-dir ./backup
+speedhive export-lap-records --org 30476 -o lap-records.ndjson
 
-# Interactive per-org settings wizard (Gemini/parsing/min-laps only)
+# Interactive per-org configuration (parser engine, Gemini key/model, min-laps)
 speedhive configure --org 30476
 ```
 
-Both `scan-track-records` and `refresh-track-records` automatically pick up the org's `parsing.engine` setting (regex vs. Gemini) via `speedhive.settings.get_bulk_parser_for_org` — no separate flag needed.
+Subcommands are auto-discovered from the `exporters`/`workflows`/`analyzers` modules; a few module-derived names are aliased onto the canonical commands (`analyze-consistency` → `report-consistency`, `refresh-org-cache` → `sync-org`, `import-sqlite-dump` → `import-dump`, `export-full-dump` → `export-dump`). Run `speedhive <command> --help` for full flags.
 
 ## Python API
 
-### Uncached scraping
 ```python
 from speedhive.wrapper import SpeedhiveClient
+from speedhive.storage import SpeedhiveStorage
 
 client = SpeedhiveClient.create()
+storage = SpeedhiveStorage("speedhive.db")
+
 org = client.get_organization(30476)
-events = client.iter_events(30476)          # generator over all events
-sessions = client.get_sessions(event_id=12345)
-laps = client.get_laps(session_id=67890)
+for event in client.iter_events(30476):
+    print(event["name"])
 ```
 
-### Cached storage + sync
 ```python
-from speedhive.storage import SpeedhiveStorage
-from speedhive.workflows.refresh_org_cache import refresh_org_cache
+# Analysis from an already-synced cache
+from speedhive.analyzers.analyze_results import get_wins_podiums_rankings
+from speedhive.analyzers.analyze_consistency import load_session_types_from_storage
 
-storage = SpeedhiveStorage("data/speedhive.db")
-refresh_org_cache(client=client, storage=storage, org_id=30476, mode="incremental")
-
-records = storage.get_track_records(30476, classification="Karting")
+results = storage.load_results_payloads(30476)
+session_map = load_session_types_from_storage(storage, 30476)
+most_wins, most_podiums = get_wins_podiums_rankings(results, session_map)
 ```
 
-### Settings resolution
-```python
-from speedhive.settings import get_org_env_var, set_org_env_var, get_parsing_engine
+## Configuration
 
-set_org_env_var("GEMINI_API_KEY", 30476, "AIza...")
-get_org_env_var("GEMINI_API_KEY", 30476)   # org override, else the bare GEMINI_API_KEY fallback
-get_parsing_engine(30476)                   # "regex" or "llm"
+| Variable | Description | Default |
+| :-- | :-- | :-- |
+| `SPEEDHIVE_DATA_DIR` | Root for per-org settings and data | `./data` |
+| `SPEEDHIVE_DB_PATH` | SQLite database path | `<data dir>/speedhive.db` |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | Gemini credentials for AI-assisted parsing (per-org: `GEMINI_API_KEY_<org_id>`) | unset |
+| `TRACK_RECORDS_STALE_HOURS` | Cache age before `refresh_and_scan` re-syncs | `20` |
+| `GOTIFY_URL` / `GOTIFY_APP_TOKEN` | Optional Gotify push on new record candidates | unset |
+
+Per-org file layout under `SPEEDHIVE_DATA_DIR`:
+
 ```
-
-More end-to-end scripts live in `examples/` (organizations, events, sessions, lap charts, announcements, streaming laps, track records).
+orgs/<org_id>/
+├── settings.json             # per-org overrides (parser engine, Gemini, min-laps, alias map path)
+└── track_records/
+    ├── curated.ndjson        # approved records (each with its own edit history)
+    ├── candidates_pending.ndjson
+    ├── rejected.ndjson
+    └── ...                   # parse cache
+```
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
-pytest              # full test suite (tests/)
-ruff check src/     # lint
+pytest            # test suite
+ruff check src/
 ```
 
-`speedhive/generated/` is an OpenAPI-generated low-level client and is not meant to be hand-edited.
+`examples/` contains runnable scripts for common client and analyzer tasks.

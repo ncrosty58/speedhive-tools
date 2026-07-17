@@ -734,15 +734,17 @@ def normalize_result_row(
         available_start_numbers is None or str(start_number) in available_start_numbers
     )
 
+    # All three lookup styles land on the same lap-times page, so they share
+    # one label; only the lookup key differs.
     if comp_id_ok:
         lap_driver_id = f"cid:{competitor_id}"
-        action_label = "View Laps"
+        action_label = "Lap times"
     elif start_no_ok:
         lap_driver_id = f"sn:{start_number}"
-        action_label = "View Laps"
+        action_label = "Lap times"
     elif position not in (None, ""):
         lap_driver_id = f"pos:{position}"
-        action_label = "View Position Trace"
+        action_label = "Lap times"
 
     return {
         "position": position if position is not None else "N/A",
