@@ -235,6 +235,7 @@ def compute_participation_by_class_year(
     session_types: Optional[List[str]] = None,
     max_classes: int = 10,
     alias_map: Optional[Dict] = None,
+    min_years_active: int = 3,
 ) -> Dict:
     """Distinct-driver headcount per (car class, year) -- ranks classes by
     their average annual participation, and supplies each class's own
@@ -244,6 +245,14 @@ def compute_participation_by_class_year(
     with zero is excluded from the average rather than counted as a 0 --
     otherwise a class that started recently or folded early would look
     weaker than one that merely ran every year in the dataset.
+
+    `min_years_active` excludes classes that haven't run in at least that
+    many distinct years from the ranking entirely (not just the average) --
+    otherwise a class that ran once with an unusually large one-off turnout
+    (a single big special-event class, a stray/mislabeled entry) can crowd
+    out classes the org actually runs every year. Matches the same
+    min-sample-size gate used elsewhere (Most Improved's qualifying-year
+    count, Wins & Podiums' min_starts).
 
     `alias_map` (the org's class_alias_map.json) folds genuinely
     different-looking labels that are the same class (e.g. "Spec Miata" ==
@@ -293,7 +302,7 @@ def compute_participation_by_class_year(
     avg_by_group = {
         group_key: sum(len(s) for s in by_year.values()) / len(by_year)
         for group_key, by_year in drivers_by_class_year.items()
-        if by_year
+        if len(by_year) >= min_years_active
     }
 
     group_keys = sorted(avg_by_group, key=lambda k: avg_by_group[k], reverse=True)
