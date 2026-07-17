@@ -7,6 +7,7 @@ given, falling back to the bare name as a shared default. Resolution goes
 through speedhive.settings, which any process (a CLI invocation or a host
 application) resolves the same way.
 """
+import json
 import os
 from typing import Any, List, Optional
 
